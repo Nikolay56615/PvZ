@@ -1,0 +1,30 @@
+from fastapi import APIRouter, Depends
+from typing import List
+import asyncpg
+from ..deps import db_conn, tenant_guard
+from ..schemas.devices import DeviceOut, CommandIn
+from ..repositories import devices as repo
+from ..mqtt_runtime import publish_command
+from asyncio_mqtt import Client
+from ..config import settings
+import uuid
+from datetime import datetime, timezone
+
+router = APIRouter(prefix="/devices", tags=["devices"])
+
+@router.get("/", response_model=List[DeviceOut])
+async def list_devices(tenant_id: str = Depends(tenant_guard), conn: asyncpg.Connection = Depends(db_conn)):
+    rows = await repo.list_devices(conn, tenant_id)
+    out = []
+    for r in rows:
+        out.append(DeviceOut(
+            device_id=r["device_id"], model=r["model"], status=r["status"],
+            rssi=r["rssi"], snr=r["snr"], battery=r["battery_level"], online=r["online"],
+            lat=r["lat"], lon=r["lon"], location_updated_at=r["location_updated_at"],
+        ))
+    return out
+
+@router.post("/{device_id}/command")
+async def send_command(device_id: str, payload: CommandIn, tenant_id: str = Depends(tenant_guard), conn: asyncpg.Connection = Depends(db_conn)):
+    cmd_id = await publish_command(tenant_id=tenant_id, device_id=device_id, type_=payload.type, params=payload.params, retain=payload.retain)
+    return {"command_id": cmd_id}

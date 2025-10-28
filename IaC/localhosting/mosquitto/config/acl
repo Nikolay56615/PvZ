@@ -1,0 +1,11 @@
+user prod/alpha
+topic write %u/sensors/+/humidity
+topic write %u/sensors/+/location
+topic write %u/sensors/+/state
+topic write %u/devices/+/ack
+topic read  %u/devices/+/command
+
+user backend
+topic read  +/+/sensors/+/#
+topic read  +/+/devices/+/ack
+topic write +/+/devices/+/command
