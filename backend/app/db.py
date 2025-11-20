@@ -1,5 +1,5 @@
 import asyncpg
-from .config import settings
+from .services.config import settings
 
 _pool: asyncpg.Pool | None = None
 

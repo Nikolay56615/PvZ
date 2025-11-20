@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     app_tenant: str = "fake"
 
-    mqtt_host: str = "localhost"
+    mqtt_host: str = "mosquitto"
     mqtt_port: int = 1883
     mqtt_username: str | None = None
     mqtt_password: str | None = None
@@ -17,7 +17,13 @@ class Settings(BaseSettings):
     db_password: str = "change_me"
     db_name: str = "pvzdb"
 
-    model_config = SettingsConfigDict(env_prefix="APP_", env_file=".env", extra="ignore")
+    dynsec_enabled: bool = True
+    dynsec_control_topic: str = "$CONTROL/dynamic-security/v1"
+    dynsec_response_topic: str = "$CONTROL/dynamic-security/v1/response"
+    dynsec_admin_username: str | None = None
+    dynsec_admin_password: str | None = None
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
     def dsn(self) -> str:
