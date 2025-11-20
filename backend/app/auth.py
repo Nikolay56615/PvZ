@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 from passlib.hash import bcrypt
 from pydantic import BaseModel
-from .config import settings
+from .services.config import settings
 
 ALGO = "HS256"
 

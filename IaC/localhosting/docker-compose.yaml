@@ -4,6 +4,7 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2.0
     container_name: mosquitto
+    user: "0:0" 
     ports:
       - "1883:1883"
       - "9001:9001"
@@ -11,7 +12,7 @@ services:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
-    restart: unless-stopped
+    restart: no
 
   retain-cleaner:
     build: ./services/retain-cleaner
@@ -23,23 +24,23 @@ services:
       MQTT_PASSWORD: ${MQTT_PASSWORD:-}
     depends_on:
       - mosquitto
-    restart: unless-stopped
+    restart: no
   
   fake-data:
     build: ./services/fake-data
     depends_on:
       - mosquitto
-    restart: unless-stopped
+    restart: no
 
   db:
-    image: timescale/timescaledb-postgis:latest-pg15
+    image: timescale/timescaledb-ha:pg16.11-ts2.23.0-all-oss
     container_name: pvz_db
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-pvz}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
       POSTGRES_DB: ${POSTGRES_DB:-pvzdb}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       - ./db/initdb:/docker-entrypoint-initdb.d

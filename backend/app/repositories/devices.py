@@ -18,6 +18,28 @@ async def list_devices(conn: asyncpg.Connection, tenant_id: str) -> Sequence[asy
         tenant_id,
     )
 
+async def get_device_by_id(conn: asyncpg.Connection, device_id: str, tenant_id: str) -> asyncpg.Record | None:
+    return await conn.fetchval(
+        """
+        SELECT 1 
+        FROM iot.devices 
+        WHERE device_id=$1 
+        AND tenant_id=$2
+        """, 
+        device_id, tenant_id
+    )
+
+async def is_belongs_to_tenant(conn: asyncpg.Connection, device_id: str, tenant_id: str) -> bool:
+    return await conn.fetchval(
+        """
+        SELECT 1
+        FROM iot.devices d
+        JOIN iot.tenant t ON t.tenant_id = d.tenant_id
+        WHERE d.device_id::text = $1 AND t.tenant_name = $2
+        """, 
+        device_id, tenant_id
+    )
+
 async def upsert_state(conn: asyncpg.Connection, *, device_id: str, rssi: int | None, snr: float | None, battery: float | None, online: str, ts) -> None:
     await conn.execute(
         """
@@ -43,4 +65,21 @@ async def upsert_location(conn: asyncpg.Connection, *, device_id: str, lat: floa
         DO UPDATE SET location=EXCLUDED.location, updated_at=EXCLUDED.updated_at
         """,
         device_id, lat, lon, ts,
+    )
+
+async def get_markers(conn: asyncpg.Connection, tenant_id: str) -> Sequence[asyncpg.Record]:
+    return await conn.fetch(
+        """
+        SELECT d.device_id::text,
+               ST_Y(ST_AsText(l.location::geometry)) AS lat,
+               ST_X(ST_AsText(l.location::geometry)) AS lon,
+               s.status AS online,
+               s.battery_level,
+               s.last_seen
+        FROM iot.devices d
+        LEFT JOIN iot.location l ON l.device_id = d.device_id
+        LEFT JOIN iot.state s    ON s.device_id = d.device_id
+        WHERE d.tenant_id=$1
+        """,
+        tenant_id,
     )

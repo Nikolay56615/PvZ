@@ -1,5 +1,4 @@
 import argparse
-import json
 import os
 import random
 import string
@@ -19,11 +18,13 @@ def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
 class FakeDevice:
-    def __init__(self, device_id, env, tenant, client, humidity_base=45.0):
+    def __init__(self, device_id, broker_host, broker_port, env, tenant, client, humidity_base=45.0):
         self.id = device_id
         self.client = client
         self.env = env
         self.tenant = tenant
+        self.broker_host = broker_host
+        self.broker_port = broker_port
         self.seq = 0
         self.humidity = humidity_base + random.uniform(-3, 3)
         self.rssi = -60 + random.randint(-15, 5)
@@ -63,6 +64,7 @@ class FakeDevice:
         try:
             parts = payload.split(",", 3)
             command_id = parts[0]
+
             def ack():
                 status = "ok"
                 details = ""
@@ -76,7 +78,7 @@ class FakeDevice:
                     self.online = "online"
                 elif cmd_type == "OFFLINE":
                     self.online = "offline"
-                
+
                 print(f"[faker:{self.id}] command {command_id} processed: {cmd_type}")
 
             threading.Timer(0.5 + random.random(), ack).start()
@@ -103,17 +105,27 @@ def main():
     if args.username:
         client.username_pw_set(args.username, args.password)
 
-    devices = [FakeDevice(f"dev-{i:03d}", (args.broker_host, args.broker_port), args.env, args.tenant, client,
-                          humidity_base=random.uniform(40, 60)) for i in range(args.devices)]
+    devices = [
+        FakeDevice(
+            device_id=f"dev-{i:03d}",
+            broker_host=args.broker_host,
+            broker_port=args.broker_port,
+            env=args.env,
+            tenant=args.tenant,
+            client=client,
+            humidity_base=random.uniform(40, 60),
+        )
+        for i in range(args.devices)
+    ]
 
-    def on_connect(c, rc):
+    def on_connect(c: mqtt.Client, userdata, flags, rc):
         print(f"[faker] connected rc={rc}")
         for d in devices:
             c.subscribe(d.topic_cmd, qos=1)
             d.publish_state(retain=True)
             d.publish_location(retain=True)
 
-    def on_message(msg):
+    def on_message(c: mqtt.Client, userdata, msg: mqtt.MQTTMessage):
         for d in devices:
             if msg.topic == d.topic_cmd:
                 d.handle_command(msg.payload.decode("utf-8", errors="ignore"))
@@ -130,8 +142,10 @@ def main():
     next_loc = [t0 + random.uniform(0, args.loc_period) for _ in devices]
     next_h = [t0 + random.uniform(0, args.humidity_period) for _ in devices]
 
-    print(f"[faker] env={args.env} tenant={args.tenant} devices={len(devices)} "
-          f"humidity_period={args.humidity_period}s state_period={args.state_period}s loc_period={args.loc_period}s")
+    print(
+        f"[faker] env={args.env} tenant={args.tenant} devices={len(devices)} "
+        f"humidity_period={args.humidity_period}s state_period={args.state_period}s loc_period={args.loc_period}s"
+    )
 
     try:
         while True:
