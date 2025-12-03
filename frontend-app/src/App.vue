@@ -1,18 +1,4 @@
-<script setup>
-import { ref, computed } from 'vue'
-import ChartsView from './components/ChartsView.vue'
-import HomeView from './components/HomeView.vue'
-
-const Devices  = { template: '<div class="card p-24">Управление устройствами — заглушка.</div>' }
-const MapView  = { template: '<div class="card p-24">Карта устройств — заглушка.</div>' }
-const Settings = { template: '<div class="card p-24">Настройки — заглушка.</div>' }
-
-const tab = ref('home')
-const Current = computed(() => ({
-  home: HomeView, devices: Devices, map: MapView, charts: ChartsView, settings: Settings
-}[tab.value]))
-</script>
-
+<!-- src/App.vue -->
 <template>
   <div class="container">
     <header class="header">
@@ -20,20 +6,75 @@ const Current = computed(() => ({
         <div class="logo"></div>
         <h1 class="title">PVZ · Мониторинг влажности</h1>
       </div>
+
       <nav class="tabs">
-        <button class="tab" :class="{active: tab==='home'}"   @click="tab='home'">Главная</button>
-        <button class="tab" :class="{active: tab==='charts'}" @click="tab='charts'">Графики</button>
-        <button class="tab" :class="{active: tab==='map'}"    @click="tab='map'">Карта</button>
-        <button class="tab" :class="{active: tab==='devices'}"@click="tab='devices'">Управление</button>
-        <button class="tab" :class="{active: tab==='settings'}"@click="tab='settings'">Настройки</button>
+        <router-link
+          to="/"
+          :class="['tab', { active: route.path === '/' }]"
+        >
+          Главная
+        </router-link>
+
+        <router-link
+          to="/charts"
+          :class="['tab', { active: route.path === '/charts' }]"
+        >
+          Графики
+        </router-link>
+
+        <!-- пока заглушки -->
+        <button class="tab" type="button">Карта</button>
+        <button class="tab" type="button">Управление</button>
+        <button class="tab" type="button">Настройки</button>
+
+        <span style="flex:1"></span>
+
+        <!-- справа: либо "войти/регистрация", либо "вошли как / выйти" -->
+        <template v-if="isAuth">
+          <span class="helper user-label">
+            Вошли как {{ userEmail }}
+          </span>
+          <button class="tab" type="button" @click="handleLogout">
+            Выйти
+          </button>
+        </template>
+
+        <template v-else>
+          <router-link to="/login" class="tab">
+            Войти
+          </router-link>
+          <router-link to="/register" class="tab">
+            Регистрация
+          </router-link>
+        </template>
       </nav>
     </header>
 
-    <section>
-      <component :is="Current" @go="tab = $event" />
-    </section>
+    <main>
+      <router-view />
+    </main>
   </div>
 </template>
 
+<script setup>
+import { useRoute, useRouter } from 'vue-router'
+import { useToast } from 'vue-toastification'
+import { useAuth } from './auth'
+
+const route = useRoute()
+const router = useRouter()
+const toast = useToast()
+const { isAuth, userEmail, logout } = useAuth()
+
+function handleLogout() {
+  logout()
+  toast.info('Вы вышли из аккаунта')
+  router.push('/login')
+}
+</script>
+
 <style scoped>
+.user-label {
+  margin-right: 8px;
+}
 </style>
