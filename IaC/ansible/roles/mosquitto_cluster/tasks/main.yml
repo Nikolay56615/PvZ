@@ -1,0 +1,14 @@
+---
+- name: Install Mosquitto
+  include_tasks: install.yml
+
+- name: Configure Mosquitto
+  include_tasks: config.yml
+
+- name: Configure dynamic security (roles, tenants, clients)
+  include_tasks: dynsec.yml
+  when: mosquitto_dynsec_enabled
+
+- name: Healthcheck Mosquitto cluster
+  include_tasks: healthcheck.yml
+  run_once: true
