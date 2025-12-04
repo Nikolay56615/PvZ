@@ -1,0 +1,28 @@
+# {{ mosquitto_cluster_name }}
+
+persistence true
+persistence_location {{ mosquitto_data_dir }}/
+
+log_dest syslog
+log_dest stdout
+
+listener {{ mosquitto_port }} 0.0.0.0
+
+allow_anonymous {{ mosquitto_allow_anonymous }}
+
+{% if mosquitto_dynsec_enabled %}
+# Dynamic Security plugin
+plugin {{ mosquitto_dynsec_plugin_path }}
+plugin_opt_config_file {{ mosquitto_dynsec_config_path }}
+{% endif %}
+
+{% for host in groups['mosquitto_brokers'] if host != inventory_hostname %}
+connection bridge_to_{{ host }}
+address {{ hostvars[host].ansible_host | default(host) }}:{{ mosquitto_port }}
+try_private true
+
+topic # both 0
+
+start_type automatic
+restart_timeout 5
+{% endfor %}

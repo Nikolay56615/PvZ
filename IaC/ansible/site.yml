@@ -1,0 +1,8 @@
+---
+- name: Deploy Mosquitto cluster with dynamic security
+  hosts: mosquitto_brokers
+  become: true
+  vars:
+    mosquitto_cluster_name: "pvz-mqtt-cluster"
+  roles:
+    - mosquitto_cluster
