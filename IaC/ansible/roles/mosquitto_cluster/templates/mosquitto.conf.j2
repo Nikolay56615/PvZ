@@ -1,0 +1,17 @@
+# {{ mosquitto_cluster_name }}
+
+persistence true
+persistence_location {{ mosquitto_data_dir }}/
+
+log_dest syslog
+log_dest stdout
+
+listener {{ mosquitto_port }} 0.0.0.0
+
+allow_anonymous {{ mosquitto_allow_anonymous }}
+
+{% if mosquitto_dynsec_enabled %}
+# Dynamic Security plugin
+plugin {{ mosquitto_dynsec_plugin_path }}
+plugin_opt_config_file {{ mosquitto_dynsec_config_path }}
+{% endif %}
