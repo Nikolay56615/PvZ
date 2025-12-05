@@ -1,0 +1,117 @@
+---
+- name: Ensure mosq_ctrl fact is set
+  set_fact:
+    mosq_ctrl: >-
+      mosquitto_ctrl -h 127.0.0.1 -p {{ mosquitto_port }}
+      -u {{ mosquitto_dynsec_admin_username }}
+      -P {{ mosquitto_dynsec_admin_password }}
+
+
+- name: Create Prometheus exporter client
+  shell: |
+    set -o pipefail
+    printf '%s\n%s\n' '{{ mosquitto_prometheus_password }}' '{{ mosquitto_prometheus_password }}' \
+      | {{ mosq_ctrl }} dynsec createClient {{ mosquitto_prometheus_username }}
+  args:
+    executable: /bin/bash
+  register: create_prom_client
+  failed_when: >
+    create_prom_client.rc != 0
+    and ('Client already exists' not in (create_prom_client.stdout | default('') ~ create_prom_client.stderr | default('')))
+  changed_when: >
+    create_prom_client.rc == 0
+    and ('Client already exists' not in (create_prom_client.stdout | default('') ~ create_prom_client.stderr | default('')))
+
+- name: Ensure Prometheus exporter password set explicitly
+  command: >
+    {{ mosq_ctrl }} dynsec setClientPassword
+    {{ mosquitto_prometheus_username }}
+    {{ mosquitto_prometheus_password }}
+  register: prom_pass
+  failed_when: prom_pass.rc != 0
+  changed_when: "'Password for client' in (prom_pass.stdout | default(''))"
+
+- name: Ensure exporter role exists
+  command: >
+    {{ mosq_ctrl }} dynsec createRole prom-exporter-role
+  register: exporter_role
+  failed_when: >
+    exporter_role.rc != 0
+    and ('Role already exists' not in (exporter_role.stderr | default('') ~ exporter_role.stdout | default('')))
+  changed_when: >
+    exporter_role.rc == 0
+    and ('Role already exists' not in (exporter_role.stderr | default('') ~ exporter_role.stdout | default('')))
+
+- name: Attach exporter role to exporter client
+  command: >
+    {{ mosq_ctrl }} dynsec addClientRole
+    {{ mosquitto_prometheus_username }}
+    prom-exporter-role
+    1
+  register: exporter_role_attach
+  failed_when: >
+    exporter_role_attach.rc != 0
+    and ('Client already has role' not in (exporter_role_attach.stderr | default('') ~ exporter_role_attach.stdout | default('')))
+  changed_when: >
+    exporter_role_attach.rc == 0
+    and ('Client already has role' not in (exporter_role_attach.stderr | default('') ~ exporter_role_attach.stdout | default('')))
+
+- name: Ensure exporter role ACL for $SYS/# (subscribe)
+  command: >
+    {{ mosq_ctrl }} dynsec addRoleACL
+    prom-exporter-role
+    subscribePattern
+    '$SYS/#'
+    allow
+    1
+  register: exporter_acl
+  failed_when: >
+    exporter_acl.rc != 0
+    and ('ACL already exists' not in (exporter_acl.stderr | default('') ~ exporter_acl.stdout | default('')))
+  changed_when: >
+    exporter_acl.rc == 0
+    and ('ACL already exists' not in (exporter_acl.stderr | default('') ~ exporter_acl.stdout | default('')))
+
+- name: Install Docker (Debian/Ubuntu)
+  apt:
+    name: docker.io
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+- name: Create systemd unit for mosquitto-exporter
+  copy:
+    dest: /etc/systemd/system/mosquitto-exporter.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Prometheus exporter for Mosquitto
+      After=docker.service mosquitto.service
+      Requires=docker.service
+
+      [Service]
+      Restart=always
+      RestartSec=5
+      ExecStart=/usr/bin/docker run --rm \
+        --name mosquitto-exporter-{{ inventory_hostname }} \
+        --network host \
+        -e BROKER_ENDPOINT=tcp://127.0.0.1:{{ mosquitto_port }} \
+        -e MQTT_USER={{ mosquitto_prometheus_username }} \
+        -e MQTT_PASS={{ mosquitto_prometheus_password }} \
+        {{ mosquitto_exporter_image }}
+
+      ExecStop=/usr/bin/docker stop mosquitto-exporter-{{ inventory_hostname }}
+
+      [Install]
+      WantedBy=multi-user.target
+
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: true
+
+- name: Ensure mosquitto-exporter is enabled and started
+  systemd:
+    name: mosquitto-exporter
+    enabled: true
+    state: started

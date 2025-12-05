@@ -1,0 +1,43 @@
+---
+- name: Mosquitto healthcheck via local publish/subscribe
+  block:
+    - name: Start async subscriber on healthcheck topic
+      shell: |
+        timeout 5s mosquitto_sub \
+          -h 127.0.0.1 -p {{ mosquitto_port }} \
+          -u {{ mosquitto_dynsec_admin_username }} \
+          -P {{ mosquitto_dynsec_admin_password }} \
+          -t "{{ mosquitto_test_topic }}" \
+          -C 1 -q 1
+      async: 10
+      poll: 0
+      register: mosq_sub_job
+
+    - name: Publish test message
+      shell: |
+        mosquitto_pub \
+          -h 127.0.0.1 -p {{ mosquitto_port }} \
+          -u {{ mosquitto_dynsec_admin_username }} \
+          -P {{ mosquitto_dynsec_admin_password }} \
+          -t "{{ mosquitto_test_topic }}" \
+          -m "{{ mosquitto_test_payload }}"
+      register: mosq_pub
+      changed_when: false
+      failed_when: mosq_pub.rc != 0
+
+    - name: Wait for subscription job to complete
+      async_status:
+        jid: "{{ mosq_sub_job.ansible_job_id }}"
+      register: mosq_sub_result
+      retries: 5
+      delay: 2
+      until: mosq_sub_result.finished | default(false)
+  rescue:
+    - name: Fail explicitly if healthcheck fails
+      fail:
+        msg: "Mosquitto healthcheck failed on {{ inventory_hostname }}"
+  always:
+    - name: Debug healthcheck result
+      debug:
+        msg: "Mosquitto healthcheck OK on {{ inventory_hostname }}"
+      when: mosq_sub_result is defined and mosq_sub_result.finished | default(false)

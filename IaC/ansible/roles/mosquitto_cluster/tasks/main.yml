@@ -1,0 +1,17 @@
+---
+- name: Install Mosquitto
+  include_tasks: install.yml
+
+- name: Configure Mosquitto
+  include_tasks: config.yml
+
+- name: Configure dynamic security (admin user, dynsec init)
+  when: mosquitto_dynsec_enabled
+  include_tasks: dynsec.yml
+
+- name: Configure Prometheus exporter for Mosquitto
+  when: mosquitto_metrics_enabled
+  include_tasks: metrics.yml
+
+- name: Healthcheck Mosquitto node
+  include_tasks: healthcheck.yml

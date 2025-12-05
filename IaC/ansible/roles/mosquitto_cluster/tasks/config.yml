@@ -1,0 +1,15 @@
+---
+- name: Render mosquitto main config with clustering and dynsec
+  template:
+    src: mosquitto.conf.j2
+    dest: "{{ mosquitto_conf_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart mosquitto
+
+- name: Ensure mosquitto service is enabled and started
+  systemd:
+    name: mosquitto
+    enabled: true
+    state: started
