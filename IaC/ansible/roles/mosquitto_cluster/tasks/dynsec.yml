@@ -39,6 +39,46 @@
       -u {{ mosquitto_dynsec_admin_username }}
       -P {{ mosquitto_dynsec_admin_password }}
 
+- name: Ensure dynsec-admin has role for healthcheck
+  command: >
+    {{ mosq_ctrl }} dynsec createRole ansible-healthcheck-role
+  register: hc_role
+  failed_when: >
+    hc_role.rc != 0
+    and ('Role already exists' not in (hc_role.stderr | default('') ~ hc_role.stdout | default('')))
+  changed_when: >
+    hc_role.rc == 0
+    and ('Role already exists' not in (hc_role.stderr | default('') ~ hc_role.stdout | default('')))
+
+- name: Attach healthcheck role to dynsec-admin
+  command: >
+    {{ mosq_ctrl }} dynsec addClientRole
+    {{ mosquitto_dynsec_admin_username }}
+    ansible-healthcheck-role
+    1
+  register: hc_role_attach
+  failed_when: >
+    hc_role_attach.rc != 0
+    and ('Client already has role' not in (hc_role_attach.stderr | default('') ~ hc_role_attach.stdout | default('')))
+  changed_when: >
+    hc_role_attach.rc == 0
+    and ('Client already has role' not in (hc_role_attach.stderr | default('') ~ hc_role_attach.stdout | default('')))
+
+- name: Ensure healthcheck role ACL for ansible/healthcheck
+  command: >
+    {{ mosq_ctrl }} dynsec addRoleACL
+    ansible-healthcheck-role
+    publishClientSend
+    'ansible/healthcheck'
+    allow
+    1
+  register: hc_acl
+  failed_when: >
+    hc_acl.rc != 0
+    and ('ACL already exists' not in (hc_acl.stderr | default('') ~ hc_acl.stdout | default('')))
+  changed_when: >
+    hc_acl.rc == 0
+    and ('ACL already exists' not in (hc_acl.stderr | default('') ~ hc_acl.stdout | default('')))
 - name: Check dynsec via listClients
   command: "{{ mosq_ctrl }} dynsec listClients"
   register: dynsec_check

@@ -9,7 +9,7 @@ mosquitto_log_dir: /var/log/mosquitto
 mosquitto_allow_anonymous: "false"
 
 mosquitto_dynsec_enabled: true
-mosquitto_dynsec_plugin_path: "/usr/lib/mosquitto_dynamic_security.so"
+mosquitto_dynsec_plugin_path: "/usr/lib/x86_64-linux-gnu/mosquitto_dynamic_security.so"
 mosquitto_dynsec_config_path: "{{ mosquitto_conf_dir }}/dynsec.json"
 
 mosquitto_dynsec_admin_username: "dynsec-admin"
