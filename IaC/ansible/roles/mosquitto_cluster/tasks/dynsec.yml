@@ -3,122 +3,84 @@
   pause:
     seconds: "{{ mosquitto_health_wait }}"
 
-- name: Check dynsec config
-  command: mosquitto_ctrl dynsec getConfig
-  register: dynsec_config_check
-  failed_when: false
+- name: Ensure dynsec config directory exists
+  file:
+    path: "{{ mosquitto_conf_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check if dynsec config exists
+  stat:
+    path: "{{ mosquitto_dynsec_config_path }}"
+  register: dynsec_stat
+
+- name: Initialize dynsec config and admin user if missing
+  command: >
+    mosquitto_ctrl dynsec init
+    {{ mosquitto_dynsec_config_path }}
+    {{ mosquitto_dynsec_admin_username }}
+    {{ mosquitto_dynsec_admin_password }}
+  when: not dynsec_stat.stat.exists
+
+- name: Fix dynsec permissions
+  file:
+    path: "{{ mosquitto_dynsec_config_path }}"
+    owner: mosquitto
+    group: mosquitto
+    mode: "0600"
+  when: dynsec_stat.stat.exists
+
+- name: Set base mosquitto_ctrl command
+  set_fact:
+    mosq_ctrl: >-
+      mosquitto_ctrl -h 127.0.0.1 -p {{ mosquitto_port }}
+      -u {{ mosquitto_dynsec_admin_username }}
+      -P {{ mosquitto_dynsec_admin_password }}
+
+- name: Ensure dynsec-admin has role for healthcheck
+  command: >
+    {{ mosq_ctrl }} dynsec createRole ansible-healthcheck-role
+  register: hc_role
+  failed_when: >
+    hc_role.rc != 0
+    and ('Role already exists' not in (hc_role.stderr | default('') ~ hc_role.stdout | default('')))
+  changed_when: >
+    hc_role.rc == 0
+    and ('Role already exists' not in (hc_role.stderr | default('') ~ hc_role.stdout | default('')))
+
+- name: Attach healthcheck role to dynsec-admin
+  command: >
+    {{ mosq_ctrl }} dynsec addClientRole
+    {{ mosquitto_dynsec_admin_username }}
+    ansible-healthcheck-role
+    1
+  register: hc_role_attach
+  failed_when: >
+    hc_role_attach.rc != 0
+    and ('Client already has role' not in (hc_role_attach.stderr | default('') ~ hc_role_attach.stdout | default('')))
+  changed_when: >
+    hc_role_attach.rc == 0
+    and ('Client already has role' not in (hc_role_attach.stderr | default('') ~ hc_role_attach.stdout | default('')))
+
+- name: Ensure healthcheck role ACL for ansible/healthcheck
+  command: >
+    {{ mosq_ctrl }} dynsec addRoleACL
+    ansible-healthcheck-role
+    publishClientSend
+    'ansible/healthcheck'
+    allow
+    1
+  register: hc_acl
+  failed_when: >
+    hc_acl.rc != 0
+    and ('ACL already exists' not in (hc_acl.stderr | default('') ~ hc_acl.stdout | default('')))
+  changed_when: >
+    hc_acl.rc == 0
+    and ('ACL already exists' not in (hc_acl.stderr | default('') ~ hc_acl.stdout | default('')))
+- name: Check dynsec via listClients
+  command: "{{ mosq_ctrl }} dynsec listClients"
+  register: dynsec_check
+  failed_when: dynsec_check.rc != 0
   changed_when: false
-
-- name: Init dynamic security config (admin user)
-  shell: |
-    printf '{{ mosquitto_dynsec_admin_password }}\n{{ mosquitto_dynsec_admin_password }}\n' | \
-      mosquitto_ctrl dynsec init {{ mosquitto_dynsec_config_path }} {{ mosquitto_dynsec_admin_username }}
-  when: dynsec_config_check.rc != 0
-  register: dynsec_init
-  changed_when: true
-
-- name: Create tenant roles (gateway/backend)
-  vars:
-    gw_role: "tenant:{{ item.name }}:gateway"
-    be_role: "tenant:{{ item.name }}:backend"
-  loop: "{{ mosquitto_tenants }}"
-  loop_control:
-    loop_var: item
-  block:
-    - name: Create gateway role
-      command: mosquitto_ctrl dynsec createRole {{ gw_role }}
-      register: create_gw_role
-      failed_when: create_gw_role.rc not in [0, 17]
-      changed_when: create_gw_role.rc == 0
-
-    - name: Add ACLs to gateway role
-      loop:
-        - { acltype: "publishClientSend", topic: "{{ mosquitto_env }}/{{ item.name }}/sensors/+/humidity" }
-        - { acltype: "publishClientSend", topic: "{{ mosquitto_env }}/{{ item.name }}/sensors/+/location" }
-        - { acltype: "publishClientSend", topic: "{{ mosquitto_env }}/{{ item.name }}/sensors/+/state" }
-        - { acltype: "publishClientSend", topic: "{{ mosquitto_env }}/{{ item.name }}/devices/+/ack" }
-        - { acltype: "subscribePattern",  topic: "{{ mosquitto_env }}/{{ item.name }}/devices/+/command" }
-      loop_control:
-        loop_var: acl
-      command: >
-        mosquitto_ctrl dynsec addRoleACL {{ gw_role }}
-        {{ acl.acltype }} "{{ acl.topic }}" allow 10
-      register: add_gw_acl
-      failed_when: add_gw_acl.rc not in [0, 17]
-      changed_when: add_gw_acl.rc == 0
-
-    - name: Create backend role
-      command: mosquitto_ctrl dynsec createRole {{ be_role }}
-      register: create_be_role
-      failed_when: create_be_role.rc not in [0, 17]
-      changed_when: create_be_role.rc == 0
-
-    - name: Add ACLs to backend role
-      loop:
-        - { acltype: "subscribePattern",  topic: "+/+/sensors/+/#" }
-        - { acltype: "subscribePattern",  topic: "+/+/devices/+/ack" }
-        - { acltype: "publishClientSend", topic: "+/+/devices/+/command" }
-      loop_control:
-        loop_var: acl
-      command: >
-        mosquitto_ctrl dynsec addRoleACL {{ be_role }}
-        {{ acl.acltype }} "{{ acl.topic }}" allow 10
-      register: add_be_acl
-      failed_when: add_be_acl.rc not in [0, 17]
-      changed_when: add_be_acl.rc == 0
-
-- name: Create backend clients and assign roles
-  loop: "{{ mosquitto_tenants }}"
-  loop_control:
-    loop_var: tenant
-  block:
-    - name: Create backend clients for tenant {{ tenant.name }}
-      loop: "{{ tenant.backend_clients | default([]) }}"
-      loop_control:
-        loop_var: be
-      block:
-        - name: create backend client {{ be.username }}
-          command: mosquitto_ctrl dynsec createClient {{ be.username }}
-          register: be_create
-          failed_when: be_create.rc not in [0, 17]
-          changed_when: be_create.rc == 0
-
-        - name: set password for backend client {{ be.username }}
-          command: mosquitto_ctrl dynsec setClientPassword {{ be.username }} {{ be.password }}
-          register: be_pass
-          failed_when: be_pass.rc not in [0, 17]
-          changed_when: be_pass.rc == 0
-
-        - name: add backend role to backend client {{ be.username }}
-          command: mosquitto_ctrl dynsec addClientRole {{ be.username }} tenant:{{ tenant.name }}:backend 10
-          register: be_role_add
-          failed_when: be_role_add.rc not in [0, 17]
-          changed_when: be_role_add.rc == 0
-
-- name: Create gateway clients and assign roles
-  loop: "{{ mosquitto_tenants }}"
-  loop_control:
-    loop_var: tenant
-  block:
-    - name: Create gateway clients for tenant {{ tenant.name }}
-      loop: "{{ tenant.gateway_clients | default([]) }}"
-      loop_control:
-        loop_var: gw
-      block:
-        - name: create gateway client {{ gw.username }}
-          command: mosquitto_ctrl dynsec createClient {{ gw.username }} -i {{ gw.clientid }}
-          register: gw_create
-          failed_when: gw_create.rc not in [0, 17]
-          changed_when: gw_create.rc == 0
-
-        - name: set password for gateway client {{ gw.username }}
-          command: mosquitto_ctrl dynsec setClientPassword {{ gw.username }} {{ gw.password }}
-          register: gw_pass
-          failed_when: gw_pass.rc not in [0, 17]
-          changed_when: gw_pass.rc == 0
-
-        - name: add gateway role to gateway client {{ gw.username }}
-          command: mosquitto_ctrl dynsec addClientRole {{ gw.username }} tenant:{{ tenant.name }}:gateway 10
-          register: gw_role_add
-          failed_when: gw_role_add.rc not in [0, 17]
-          changed_when: gw_role_add.rc == 0
