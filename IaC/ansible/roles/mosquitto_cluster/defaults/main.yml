@@ -2,31 +2,34 @@
 mosquitto_port: 1883
 
 mosquitto_conf_dir: /etc/mosquitto
-mosquitto_conf_path: /etc/mosquitto/mosquitto.conf
+mosquitto_conf_path: "{{ mosquitto_conf_dir }}/mosquitto.conf"
 mosquitto_data_dir: /var/lib/mosquitto
 mosquitto_log_dir: /var/log/mosquitto
 
-mosquitto_allow_anonymous: "true"
-
-mosquitto_health_wait: 5
-mosquitto_test_topic: "test/cluster"
-mosquitto_test_payload: "hello-from-ansible"
+mosquitto_allow_anonymous: "false"
 
 mosquitto_dynsec_enabled: true
 mosquitto_dynsec_plugin_path: "/usr/lib/mosquitto_dynamic_security.so"
 mosquitto_dynsec_config_path: "{{ mosquitto_conf_dir }}/dynsec.json"
 
-mosquitto_dynsec_admin_username: ""
-mosquitto_dynsec_admin_password: ""
+mosquitto_dynsec_admin_username: "dynsec-admin"
+mosquitto_dynsec_admin_password: "change_me_admin"
+
+mosquitto_health_wait: 5
+
+mosquitto_test_topic: "ansible/healthcheck"
+mosquitto_test_payload: "hello-from-ansible"
+
+mosquitto_cluster_name: "pvz-mqtt-nodes"
+
+mosquitto_metrics_enabled: true
+mosquitto_exporter_image: "sapcc/mosquitto-exporter:latest"
+mosquitto_exporter_bind_address: "0.0.0.0"
+mosquitto_exporter_port: 9234
+
+mosquitto_prometheus_username: "prom-exporter"
+mosquitto_prometheus_password: "change_me_exporter"
 
 mosquitto_env: "dev"
 
-mosquitto_tenants:
-  - name: "fake"
-    backend_clients:
-      - username: ""
-        password: ""
-    gateway_clients:
-      - clientid: ""
-        username: ""
-        password: ""
+mosquitto_tenants: []

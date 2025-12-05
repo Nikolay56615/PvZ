@@ -6,3 +6,8 @@
     mosquitto_cluster_name: "pvz-mqtt-cluster"
   roles:
     - mosquitto_cluster
+# - name: Deploy PostgreSQL for other services
+#   hosts: postgresql_servers
+#   become: true
+#   roles:
+#     - postgresql
