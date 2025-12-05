@@ -15,14 +15,3 @@ allow_anonymous {{ mosquitto_allow_anonymous }}
 plugin {{ mosquitto_dynsec_plugin_path }}
 plugin_opt_config_file {{ mosquitto_dynsec_config_path }}
 {% endif %}
-
-{% for host in groups['mosquitto_brokers'] if host != inventory_hostname %}
-connection bridge_to_{{ host }}
-address {{ hostvars[host].ansible_host | default(host) }}:{{ mosquitto_port }}
-try_private true
-
-topic # both 0
-
-start_type automatic
-restart_timeout 5
-{% endfor %}
