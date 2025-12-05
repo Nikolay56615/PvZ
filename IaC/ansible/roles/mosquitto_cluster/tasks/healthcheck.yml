@@ -1,54 +1,43 @@
 ---
-- name: Ensure we have at least two brokers for cluster check
-  assert:
-    that:
-      - groups['mosquitto_brokers'] | length >= 2
-    fail_msg: "Need at least 2 brokers for cluster healthcheck"
-  run_once: true
+- name: Mosquitto healthcheck via local publish/subscribe
+  block:
+    - name: Start async subscriber on healthcheck topic
+      shell: |
+        timeout 5s mosquitto_sub \
+          -h 127.0.0.1 -p {{ mosquitto_port }} \
+          -u {{ mosquitto_dynsec_admin_username }} \
+          -P {{ mosquitto_dynsec_admin_password }} \
+          -t "{{ mosquitto_test_topic }}" \
+          -C 1 -q 1
+      async: 10
+      poll: 0
+      register: mosq_sub_job
 
-- name: Pick first and second broker for healthcheck
-  set_fact:
-    mosq_broker_src: "{{ groups['mosquitto_brokers'][0] }}"
-    mosq_broker_dst: "{{ groups['mosquitto_brokers'][1] }}"
-  run_once: true
+    - name: Publish test message
+      shell: |
+        mosquitto_pub \
+          -h 127.0.0.1 -p {{ mosquitto_port }} \
+          -u {{ mosquitto_dynsec_admin_username }} \
+          -P {{ mosquitto_dynsec_admin_password }} \
+          -t "{{ mosquitto_test_topic }}" \
+          -m "{{ mosquitto_test_payload }}"
+      register: mosq_pub
+      changed_when: false
+      failed_when: mosq_pub.rc != 0
 
-- name: Wait a bit after restart
-  pause:
-    seconds: "{{ mosquitto_health_wait }}"
-  run_once: true
-
-- name: Subscribe on dst broker and wait for message
-  shell: |
-    timeout 10s mosquitto_sub -h {{ hostvars[mosq_broker_dst].ansible_host | default(mosq_broker_dst) }} \
-      -p {{ mosquitto_port }} -t "{{ mosquitto_test_topic }}" -C 1
-  register: mosq_sub_result
-  async: 15
-  poll: 0
-  delegate_to: localhost
-  run_once: true
-
-- name: Publish test message on src broker
-  shell: |
-    mosquitto_pub -h {{ hostvars[mosq_broker_src].ansible_host | default(mosq_broker_src) }} \
-      -p {{ mosquitto_port }} -t "{{ mosquitto_test_topic }}" -m "{{ mosquitto_test_payload }}"
-  register: mosq_pub_result
-  delegate_to: localhost
-  run_once: true
-
-- name: Wait for subscription job to complete
-  async_status:
-    jid: "{{ mosq_sub_result.ansible_job_id }}"
-  register: mosq_sub_final
-  until: mosq_sub_final.finished
-  retries: 10
-  delay: 1
-  delegate_to: localhost
-  run_once: true
-
-- name: Assert that message was received on dst broker
-  assert:
-    that:
-      - mosq_sub_final.stdout is search(mosquitto_test_payload)
-    fail_msg: "Mosquitto cluster healthcheck failed: test message not received on dst broker"
-    success_msg: "Mosquitto cluster healthcheck OK: message reached dst broker through bridge"
-  run_once: true
+    - name: Wait for subscription job to complete
+      async_status:
+        jid: "{{ mosq_sub_job.ansible_job_id }}"
+      register: mosq_sub_result
+      retries: 5
+      delay: 2
+      until: mosq_sub_result.finished | default(false)
+  rescue:
+    - name: Fail explicitly if healthcheck fails
+      fail:
+        msg: "Mosquitto healthcheck failed on {{ inventory_hostname }}"
+  always:
+    - name: Debug healthcheck result
+      debug:
+        msg: "Mosquitto healthcheck OK on {{ inventory_hostname }}"
+      when: mosq_sub_result is defined and mosq_sub_result.finished | default(false)

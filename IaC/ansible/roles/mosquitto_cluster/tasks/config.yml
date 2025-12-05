@@ -13,9 +13,3 @@
     name: mosquitto
     enabled: true
     state: started
-
-- name: Restart mosquitto
-  systemd:
-    name: mosquitto
-    state: restarted
-  listen: Restart mosquitto
