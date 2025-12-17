@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from asyncio_mqtt import Client, MqttError
 from datetime import datetime, timezone
 from .services.config import settings
@@ -13,6 +14,11 @@ TOPIC_HUM = "+/+/sensors/+/humidity"
 TOPIC_LOC = "+/+/sensors/+/location"
 TOPIC_STATE = "+/+/sensors/+/state"
 TOPIC_ACK = "+/+/devices/+/ack"
+
+logger = logging.getLogger(__name__)
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+logger.setLevel(logging.DEBUG)
 
 def _iso(ts: str):
     return datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -74,8 +80,10 @@ async def publish_command(*, tenant_id: str, device_id: str, type_: str, params:
         topic = f"{settings.app_env}/{tenant_id}/devices/{device_id}/command"
 
         await cmdrepo.create_command(conn, device_id=device_id, cmd_id=cmd_id, type_=type_, params=params or {}, retain=retain)
+        logger.info("Created command %s for device %s tenant %s", cmd_id, device_id, tenant_id)
 
     async with Client(settings.mqtt_host, settings.mqtt_port, username=settings.mqtt_username or None, password=settings.mqtt_password or None) as client:
+        logger.info("Publishing command %s to topic %s", cmd_id, topic)
         await client.publish(topic, payload.encode("utf-8"), qos=1, retain=retain)
 
     async with pool.acquire() as conn:
@@ -85,41 +93,50 @@ async def publish_command(*, tenant_id: str, device_id: str, type_: str, params:
 
 async def run_mqtt_forever():
     while True:
+        logger.info("Starting MQTT runtime...")
         try:
+            logger.info("Connecting to MQTT broker at %s:%d", settings.mqtt_host, settings.mqtt_port)
             async with Client(settings.mqtt_host, settings.mqtt_port, username=settings.mqtt_username or None, password=settings.mqtt_password or None) as client:
                 await client.subscribe([(TOPIC_HUM,1),(TOPIC_LOC,1),(TOPIC_STATE,1),(TOPIC_ACK,1)])
+                logger.info("Subscribed to topics")
                 pool = await get_pool()
                 async with client.unfiltered_messages() as messages:
+                    logger.info("MQTT runtime started, listening for messages...")
                     async for msg in messages:
                         try:
+                            logger.debug("Received MQTT message on topic %s", msg.topic)
                             meta = _split_topic(msg.topic)
                             if not meta:
+                                logger.debug("Ignoring topic with insufficient parts: %s", msg.topic)
                                 continue
                             env, tenant_name, kind, device_id, leaf = meta
 
                             if env != settings.app_env:
+                                logger.debug("Ignoring message from env %s (app env %s)", env, settings.app_env)
                                 continue
 
                             payload = msg.payload.decode("utf-8", errors="ignore")
                             async with pool.acquire() as conn:
-                                if leaf != "ack":
-                                    if not await _device_belongs(conn, device_id, tenant_name):
-                                        continue
-                                else:
-                                    if not await _device_belongs(conn, device_id, tenant_name):
-                                        continue
+                                if not await _device_belongs(conn, device_id, tenant_name):
+                                    logger.debug("Device %s does not belong to tenant %s, skipping", device_id, tenant_name)
+                                    continue
 
                                 await _set_rls(conn, tenant_name)
 
                                 if leaf == "humidity":
+                                    logger.debug("Handling humidity for %s", device_id)
                                     await _handle_humidity(payload, conn)
                                 elif leaf == "location":
+                                    logger.debug("Handling location for %s", device_id)
                                     await _handle_location(payload, conn, device_id)
                                 elif leaf == "state":
+                                    logger.debug("Handling state for %s", device_id)
                                     await _handle_state(payload, conn, device_id)
                                 elif leaf == "ack":
+                                    logger.debug("Handling ack for %s", device_id)
                                     await _handle_ack(payload, conn)
                         except Exception:
-                            pass
+                            logger.exception("Error processing MQTT message")
         except MqttError:
+            logger.exception("MQTT connection error, retrying in 2s")
             await asyncio.sleep(2)

@@ -76,13 +76,24 @@ async function registerUser() {
   }
 
   try {
-    // Здесь должен быть запрос к бэкенду для регистрации:
-    // await api.post('/auth/register', { email: email.value, password: password.value })
+    const payload = {
+      user: { email: email.value },
+      password: password.value,
+    }
+    const resp = await (await import('../api')).api.post('/auth/register', payload)
+    const token = resp?.access_token
+    if (token) {
+      const { login } = (await import('../auth')).useAuth()
+      login(token, email.value)
+      toast.success('Аккаунт создан и вы вошли.')
+      router.push('/')
+      return
+    }
 
-    toast.success('Аккаунт создан. Теперь войди.')
+    toast.success('Аккаунт создан. Теперь войдите.')
     router.push('/login')
   } catch (e) {
-    toast.error('Не удалось создать аккаунт. Попробуйте позже.')
+    toast.error(e?.body?.detail || e?.message || 'Не удалось создать аккаунт. Попробуйте позже.')
   }
 }
 </script>

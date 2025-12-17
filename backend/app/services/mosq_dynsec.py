@@ -11,17 +11,28 @@ class DynSecError(Exception):
 
 @asynccontextmanager
 async def _ctrl_client():
-    client = Client(
-        settings.mqtt_host,
-        settings.mqtt_port,
-        username=settings.dynsec_admin_username or settings.mqtt_username or None,
-        password=settings.dynsec_admin_password or settings.mqtt_password or None,
-    )
-    await client.connect()
+    try:
+        client = Client(
+            settings.mqtt_host,
+            settings.mqtt_port,
+            username=settings.dynsec_admin_username or settings.mqtt_username or None,
+            password=settings.dynsec_admin_password or settings.mqtt_password or None,
+        )
+    except Exception as e:
+        raise DynSecError(f"MQTT client init failed: {e}")
+
+    try:
+        await client.connect()
+    except Exception as e:
+        raise DynSecError(f"MQTT client connect failed: {e}")
+
     try:
         yield client
     finally:
-        await client.disconnect()
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
 
 async def dynsec_call(commands: list[dict], timeout: float = 5.0) -> dict:
     if not settings.dynsec_enabled:
