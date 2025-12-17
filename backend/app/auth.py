@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import jwt
-from passlib.hash import bcrypt
+from passlib.context import CryptContext
 from pydantic import BaseModel
 from .services.config import settings
 
@@ -9,12 +9,15 @@ ALGO = "HS256"
 class User(BaseModel):
     user_id: str
     name: str
-    tenant_id: str
+    tenant_id: str | None = None
     permissions: str = "VIEWER"
+
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+
 
 def verify_password(plain: str, hashed: str) -> bool:
     try:
-        return bcrypt.verify(plain, hashed)
+        return pwd_context.verify(plain, hashed)
     except Exception:
         return False
 

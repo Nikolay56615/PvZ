@@ -67,18 +67,22 @@ async function loginUser() {
   }
 
   try {
-    // здесь будет запрос к бэкенду:
-    // const resp = await api.post('/auth/login', {
-    //   login: loginValue.value,
-    //   password: password.value
-    // })
-    // login(resp.data.user.email)
+    const payload = {
+      user: {},
+      password: password.value,
+    }
+    if (loginValue.value.includes('@')) payload.user.email = loginValue.value
+    else payload.user.username = loginValue.value
 
-    login(loginValue.value)
+    const resp = await (await import('../api')).api.post('/auth/login', payload)
+    const token = resp?.access_token
+    if (!token) throw new Error('No token')
+
+    login(token, loginValue.value)
     toast.success(`Добро пожаловать, ${loginValue.value}!`)
     router.push('/')
   } catch (e) {
-    toast.error('Не удалось войти. Проверьте данные или попробуйте позже.')
+    toast.error(e?.message || 'Не удалось войти. Проверьте данные или попробуйте позже.')
   }
 }
 </script>

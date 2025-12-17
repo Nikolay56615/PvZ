@@ -22,6 +22,14 @@
           Графики
         </router-link>
 
+        <router-link
+          v-if="isAuth"
+          to="/tenants"
+          :class="['tab', { active: route.path === '/tenants' }]"
+        >
+          Тенанты
+        </router-link>
+
         <!-- пока заглушки -->
         <button class="tab" type="button">Карта</button>
         <button class="tab" type="button">Управление</button>

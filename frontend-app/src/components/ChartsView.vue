@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, nextTick } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import Papa from 'papaparse'
 import {
   Chart,
@@ -73,6 +73,11 @@ function toLocalInput(ms) {
 
 const canvasEl = ref(null)
 let chart
+
+const devices = ref([])
+const selectedDevice = ref('')
+const tenants = ref([])
+const selectedTenant = ref('')
 
 const st = reactive({
   rows: [],
@@ -165,33 +170,53 @@ function loadCSV(file) {
 }
 
 async function loadFromBackend(options = {}) {
-  /*
-    Здесь в будущем должен быть запрос к бэкенду / Postgres.
-    Ожидаемый формат ответа от API: массив объектов, похожих на строки CSV,
-    например:
-      [
-        { timestamp: '2025-11-05 22:00:00', humidity_percent: 48.5, location: 'Сектор A' },
-        ...
-      ]
+  const deviceId = options.deviceId || selectedDevice.value
+  if (!deviceId) {
+    alert('Выберите устройство для загрузки данных')
+    return
+  }
 
-    Пример заготовки (axios/fetch — по выбору):
+  const from = options.from ?? (st.start ? new Date(st.start).toISOString() : null)
+  const to = options.to ?? (st.end ? new Date(st.end).toISOString() : null)
 
-      const resp = await api.get('/api/humidity', {
-        params: {
-          sensorId: options.sensorId,
-          from: options.from,   // ms или ISO-строка
-          to:   options.to
-        }
-      })
-      const rows = resp.data
+  const useFrom = from || new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString()
+  const useTo = to || new Date().toISOString()
 
-    Сейчас здесь заглушка, чтобы не ломать работу CSV:
-  */
+  try {
+    const { api } = await import('../api')
+    const resp = await api.post(`/charts/humidity/${deviceId}`, { since: useFrom, until: useTo })
+    const rows = (resp || []).map(r => ({ timestamp: r.ts || r.sent_ts, humidity_percent: r.humidity }))
+    if (!rows.length) {
+      alert('Нет данных за выбранный период')
+      return
+    }
+    await processRows(rows)
+  } catch (e) {
+    alert('Ошибка загрузки данных: ' + (e?.message || e))
+  }
+}
 
-  const rows = [] // TODO: заменить на данные от бэкенда
-  if (!rows.length) return
+async function loadDevices() {
+  try {
+    const { api } = await import('../api')
+    const tenantQuery = selectedTenant.value ? `?tenant_id=${selectedTenant.value}` : ''
+    const resp = await api.get(`/devices/${tenantQuery}`)
+    devices.value = resp || []
+    if (devices.value.length) selectedDevice.value = devices.value[0].device_id
+  } catch (e) {
+    console.warn('Не удалось загрузить устройства:', e)
+  }
+}
 
-  await processRows(rows)
+async function loadTenants() {
+  try {
+    const { api } = await import('../api')
+    const resp = await api.get('/tenants')
+    tenants.value = resp || []
+    if (tenants.value.length && !selectedTenant.value) selectedTenant.value = tenants.value[0].tenant_id
+  } catch (e) {
+    console.warn('Не удалось загрузить тенанты:', e)
+  }
 }
 
 function applyFilter() {
@@ -323,6 +348,11 @@ watch(
   () => [st.start, st.end],
   applyFilter
 )
+
+onMounted(() => {
+  loadTenants()
+  loadDevices()
+})
 </script>
 
 <template>
@@ -346,6 +376,11 @@ watch(
             flex-wrap:wrap;
           "
         >
+          <select class="input select" style="width:auto" v-model="selectedTenant" @change="loadDevices">
+            <option value="" disabled selected>Тенант</option>
+            <option v-for="t in tenants" :key="t.tenant_id" :value="t.tenant_id">{{ t.name }}</option>
+          </select>
+
           <select class="input select" style="width:auto" @change="e => preset(e.target.value)">
             <option disabled selected>Выбрать период</option>
             <option value="7d">Последняя неделя</option>

@@ -4,12 +4,14 @@ import HomeView from './components/HomeView.vue'
 import ChartsView from './components/ChartsView.vue'
 import LoginView from './components/LoginView.vue'
 import RegisterView from './components/RegisterView.vue'
+import TenantsView from './components/TenantsView.vue'
 import { useAuth } from './auth'
 
 const routes = [
   { path: '/', component: HomeView },
   { path: '/login', component: LoginView },
   { path: '/register', component: RegisterView },
+  { path: '/tenants', component: TenantsView, meta: { requiresAuth: true } },
   {
     path: '/charts',
     component: ChartsView,

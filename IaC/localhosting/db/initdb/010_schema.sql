@@ -28,6 +28,7 @@ FOR EACH ROW EXECUTE FUNCTION iot.tg_set_updated_at();
 CREATE TABLE IF NOT EXISTS iot.users (
   user_id     uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
   name        varchar(120) NOT NULL,
+  email       text,
   password    text NOT NULL,
   permissions iot.permission_level NOT NULL DEFAULT 'VIEWER',
   tenant_id   uuid REFERENCES iot.tenant(tenant_id) ON DELETE SET NULL,
@@ -37,6 +38,10 @@ CREATE TABLE IF NOT EXISTS iot.users (
 CREATE TRIGGER tr_users_updated
 BEFORE UPDATE ON iot.users
 FOR EACH ROW EXECUTE FUNCTION iot.tg_set_updated_at();
+
+-- Unique indexes to prevent duplicate usernames/emails
+CREATE UNIQUE INDEX IF NOT EXISTS users_name_idx ON iot.users(name);
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_idx ON iot.users((email)) WHERE email IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS iot.devices (
   device_id      uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
