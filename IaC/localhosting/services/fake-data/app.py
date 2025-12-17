@@ -81,7 +81,8 @@ class FakeDevice:
         self.humidity = clamp(self.humidity + random.uniform(-0.3, 0.3), 0.0, 100.0)
         payload = f"{self.id},{now_iso()},{self.humidity:.2f},{self.seq}"
         topic = f"{self.env}/{self.tenant}/sensors/{self.id}/humidity"
-        self.client.publish(topic, payload=payload, qos=1, retain=retain)
+        info = self.client.publish(topic, payload=payload, qos=1, retain=retain)
+        print(info)
 
     def publish_state(self, retain: bool = True) -> None:
         self.rssi += random.randint(-1, 1)
@@ -132,14 +133,14 @@ class FakeDevice:
 
 
 def run_faker() -> None:
-    broker_host = os.getenv("MQTT_HOST", "mosquitto")
+    broker_host = os.getenv("MQTT_HOST", "5.129.250.254")
     broker_port = int(os.getenv("MQTT_PORT", "1883"))
-    username = os.getenv("MQTT_USERNAME", "")
-    password = os.getenv("MQTT_PASSWORD", "")
+    username = os.getenv("MQTT_USERNAME", "dynsec-admin")
+    password = os.getenv("MQTT_PASSWORD", "change_me_admin")
     env = os.getenv("ENV", "dev")
     tenant = os.getenv("TENANT", "fake")
 
-    devices_count = int(os.getenv("DEVICES", "5"))
+    devices_count = int(os.getenv("DEVICES", "1"))
     state_period = float(os.getenv("STATE_PERIOD", "5.0"))
     loc_period = float(os.getenv("LOCATION_PERIOD", "10.0"))
     humidity_period = float(os.getenv("HUMIDITY_PERIOD", "1.0"))
@@ -238,4 +239,4 @@ def run_faker() -> None:
 
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
