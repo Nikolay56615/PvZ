@@ -1,8 +1,8 @@
 {
   "name": "pvz-root",
   "private": true,
-  "workspaces": ["frontend-app"],
   "scripts": {
+    "postinstall": "npm --prefix frontend-app install",
     "build": "npm --prefix frontend-app run build",
     "dev": "npm --prefix frontend-app run dev",
     "preview": "npm --prefix frontend-app run preview"
