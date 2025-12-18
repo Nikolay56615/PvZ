@@ -9,11 +9,18 @@ app = FastAPI(title="IoT Backend", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://5.129.250.254:1883",
+        "https://nikolay56615-pvz-cdc9.twc1.net",
+        "http://nikolay56615-pvz-cdc9.twc1.net",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 app.include_router(r_auth.router)
 app.include_router(r_devices.router)
