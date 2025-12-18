@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -28,9 +29,27 @@ app.include_router(r_map.router)
 app.include_router(r_charts.router)
 app.include_router(r_tenants.router)
 
+logger = logging.getLogger(__name__)
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+logger.setLevel(logging.DEBUG)
+def _log_task_result(task: asyncio.Task):
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        logger.warning("MQTT task cancelled")
+    except Exception:
+        logger.exception("MQTT task crashed")
+
 @app.on_event("startup")
 async def _startup():
-    app.state.mqtt_task = asyncio.create_task(run_mqtt_forever())
+    t = asyncio.create_task(run_mqtt_forever())
+    t.add_done_callback(_log_task_result)
+    app.state.mqtt_task = t
+    logger.info("MQTT task created: %r", t)
 
 @app.on_event("shutdown")
 async def _shutdown():
