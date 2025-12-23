@@ -6,6 +6,7 @@ OnlineStatus = Literal["offline","sleep","online"]
 
 class DeviceOut(BaseModel):
     device_id: str
+    external_id: str | None = None
     model: str | None = None
     status: str | None = None
     rssi: int | None = None

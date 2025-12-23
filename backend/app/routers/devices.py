@@ -14,7 +14,7 @@ async def list_devices(tenant_id: str | None = Query(None, alias='tenant_id'), t
     rows = await repo.list_devices(conn, effective_tenant)
     return [
         DeviceOut(
-            device_id=r["device_id"], model=r["model"], status=r["status"],
+            device_id=r["device_id"], external_id=r["external_id"], model=r["model"], status=r["status"],
             rssi=r["rssi"], snr=r["snr"], battery=r["battery_level"], online=r["online"],
             lat=r["lat"], lon=r["lon"], location_updated_at=r["location_updated_at"],
         )
