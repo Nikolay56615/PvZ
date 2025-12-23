@@ -190,13 +190,13 @@ async def run_mqtt_forever():
                                 logger.debug("No MQTT messages for 60s (still connected)")
                                 continue
                             except StopAsyncIteration:
-                                logger.warning("MQTT messages stream ended (connection closed). Reconnecting...")
+                                logger.info("MQTT messages stream ended (connection closed). Reconnecting...")
                                 break
 
                             try:
                                 topic_str = str(msg.topic)
                                 payload = msg.payload.decode("utf-8", errors="ignore")
-                                logger.warning("RAW MQTT: topic=%s payload=%r retain=%s qos=%s", topic_str, payload[:200], getattr(msg, "retain", None), getattr(msg, "qos", None))
+                                logger.info("RAW MQTT: topic=%s payload=%r retain=%s qos=%s", topic_str, payload[:200], getattr(msg, "retain", None), getattr(msg, "qos", None))
                                 meta = _split_topic(topic_str)
                                 if not meta:
                                     logger.info("SKIP: topic has insufficient parts: %s", topic_str)
@@ -207,10 +207,10 @@ async def run_mqtt_forever():
                                 if env != settings.app_env:
                                     logger.info("SKIP: env mismatch env=%s app_env=%s topic=%s", env, settings.app_env, topic_str)
                                     continue
-                                logger.warning("RAW OK, going to parse+store")
+                                logger.info("RAW OK, going to parse+store")
 
                                 async with pool.acquire() as conn:
-                                    logger.warning("Processing MQTT message for tenant=%s device=%s leaf=%s", tenant_name, device_id, leaf)
+                                    logger.info("Processing MQTT message for tenant=%s device=%s leaf=%s", tenant_name, device_id, leaf)
                                     resolved = await devrepo.resolve_device_uuid(conn, device_id)
                                     if not resolved:
                                         resolved = await devrepo.get_or_create_by_external_id(
@@ -222,24 +222,24 @@ async def run_mqtt_forever():
                                         if resolved:
                                             logger.info("Auto-provisioned device external_id=%s for tenant=%s -> %s", device_id, tenant_name, resolved)
                                         else:
-                                            logger.warning("Cannot provision device=%s: tenant=%s not found?", device_id, tenant_name)
+                                            logger.info("Cannot provision device=%s: tenant=%s not found?", device_id, tenant_name)
                                             continue
 
-                                    logger.warning("Resolved device identifier %s to UUID %s", device_id, resolved)
+                                    logger.info("Resolved device identifier %s to UUID %s", device_id, resolved)
 
                                     belongs = await _device_belongs(conn, resolved, tenant_name)
                                     if not belongs:
-                                        logger.warning(
+                                        logger.info(
                                             "Skipping message: device %s does not belong to tenant %s",
                                             resolved, tenant_name
                                         )
                                         continue
                                     
-                                    logger.warning("Device %s belongs to tenant %s", resolved, tenant_name)
+                                    logger.info("Device %s belongs to tenant %s", resolved, tenant_name)
 
                                     # await _set_rls(conn, tenant_name)
                                     
-                                    logger.warning("Set RLS for tenant %s", tenant_name)
+                                    logger.info("Set RLS for tenant %s", tenant_name)
 
                                     if leaf == "humidity":
                                         await _handle_humidity(payload, conn, external_id=device_id, device_uuid=resolved)
@@ -250,8 +250,8 @@ async def run_mqtt_forever():
                                     elif leaf == "ack":
                                         await _handle_ack(payload, conn)
                                     else:
-                                        logger.warning("Unknown leaf %s, ignoring", leaf)
-                                    logger.warning("Stored message: device=%s leaf=%s tenant=%s", resolved, leaf, tenant_name)
+                                        logger.info("Unknown leaf %s, ignoring", leaf)
+                                    logger.info("Stored message: device=%s leaf=%s tenant=%s", resolved, leaf, tenant_name)
 
 
                             except Exception:
