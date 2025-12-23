@@ -105,8 +105,7 @@ CREATE TABLE IF NOT EXISTS iot.state (
 CREATE INDEX IF NOT EXISTS state_updated_idx
   ON iot.state(updated_at DESC);
 
-CREATE TABLE IF NOT EXISTS 
- (
+CREATE TABLE IF NOT EXISTS iot.location (
   device_id  uuid PRIMARY KEY REFERENCES iot.devices(device_id) ON DELETE CASCADE,
   location   geography(Point, 4326),
   updated_at timestamptz NOT NULL DEFAULT now(),
