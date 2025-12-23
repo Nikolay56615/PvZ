@@ -29,18 +29,21 @@ def _require_admin(user: dict):
 async def api_create_tenant(payload: TenantCreateIn, user=Depends(current_user), conn: asyncpg.Connection = Depends(db_conn)):
     tenant_name = payload.tenant
     tenant_id = await conn.fetchval("SELECT tenant_id::text FROM iot.tenant WHERE tenant_name = $1", tenant_name)
+    
     if not tenant_id:
         tenant_id = await conn.fetchval(
             "INSERT INTO iot.tenant (tenant_name, tenant_owner) VALUES ($1, $2) RETURNING tenant_id::text",
             tenant_name, user.get('name')
         )
-
-    try:
-        result = await create_tenant(payload.env, tenant_name)
-    except DynSecError as e:
-        result = {"tenant": tenant_name, "warning": "dynsec_failed", "detail": str(e)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    else:
+        if tenant_name != "fake":
+            raise HTTPException(status_code=400, detail="Tenant already exists")
+    # try:
+        # result = await create_tenant(payload.env, tenant_name)
+    # except DynSecError as e:
+    #     result = {"tenant": tenant_name, "warning": "dynsec_failed", "detail": str(e)}
+    # except Exception as e:
+    #     raise HTTPException(status_code=500, detail=str(e))
 
     try:
         await conn.execute(
@@ -50,7 +53,7 @@ async def api_create_tenant(payload: TenantCreateIn, user=Depends(current_user),
     except Exception:
         pass
 
-    return result
+    return {"tenant": tenant_name, "tenant_id": tenant_id}
 
 @router.delete("/{tenant}", summary="Удалить тенант (роли)")
 async def api_delete_tenant(tenant: str, user=Depends(current_user)):

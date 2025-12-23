@@ -16,14 +16,8 @@ TOPIC_HUM = "+/+/sensors/+/humidity"
 TOPIC_LOC = "+/+/sensors/+/location"
 TOPIC_STATE = "+/+/sensors/+/state"
 TOPIC_ACK = "+/+/devices/+/ack"
-
 logger = logging.getLogger(__name__)
-if not logging.getLogger().handlers:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-logger.setLevel(logging.DEBUG)
+logging.getLogger().setLevel(logging.DEBUG)
 
 
 def _iso(ts: str):
@@ -52,36 +46,43 @@ async def _set_rls(conn: asyncpg.Connection, tenant_name: str):
 async def _device_belongs(conn: asyncpg.Connection, device_id: str, tenant_name: str) -> bool:
     return bool(await devrepo.is_belongs_to_tenant(conn, device_id, tenant_name))
 
-
-async def _handle_humidity(line: str, conn: asyncpg.Connection):
+async def _handle_humidity(line: str, conn: asyncpg.Connection, *, external_id: str, device_uuid: str):
     parts = line.split(",")
     if len(parts) < 3:
         raise ValueError(f"bad humidity payload: {line!r}")
+
     d, ts, h = parts[0], parts[1], parts[2]
+    if d != external_id:
+        return
+
     seq = int(parts[3]) if len(parts) > 3 and parts[3] else None
-    await telrepo.insert_humidity(conn, device_id=d, ts=_iso(ts), humidity=float(h), seq=seq)
+    await telrepo.insert_humidity(conn, device_id=device_uuid, ts=_iso(ts), humidity=float(h), seq=seq)
 
 
-async def _handle_location(line: str, conn: asyncpg.Connection, device_id: str):
+async def _handle_location(line: str, conn: asyncpg.Connection, *, external_id: str, device_uuid: str):
     parts = line.split(",")
     if len(parts) < 4:
         raise ValueError(f"bad location payload: {line!r}")
+
     d, ts, lat, lon = parts[0], parts[1], parts[2], parts[3]
-    if d != device_id:
+    if d != external_id:
         return
-    await devrepo.upsert_location(conn, device_id=d, lat=float(lat), lon=float(lon), ts=_iso(ts))
+
+    await devrepo.upsert_location(conn, device_id=device_uuid, lat=float(lat), lon=float(lon), ts=_iso(ts))
 
 
-async def _handle_state(line: str, conn: asyncpg.Connection, device_id: str):
+async def _handle_state(line: str, conn: asyncpg.Connection, *, external_id: str, device_uuid: str):
     parts = line.split(",")
     if len(parts) < 6:
         raise ValueError(f"bad state payload: {line!r}")
+
     d, ts, rssi, snr, bat, online = parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
-    if d != device_id:
+    if d != external_id:
         return
+
     await devrepo.upsert_state(
         conn,
-        device_id=d,
+        device_id=device_uuid,
         rssi=int(rssi),
         snr=float(snr),
         battery=float(bat),
@@ -108,7 +109,11 @@ async def publish_command(
     params: dict | None = None,
     retain: bool = False,
 ) -> str:
-    pool = await get_pool()
+    pool = None
+    try:
+        pool = await get_pool()
+    except Exception:
+        logger.exception("DB is not available at MQTT startup; will retry later")
     async with pool.acquire() as conn:
         if not await _device_belongs(conn, device_id, tenant_id):
             raise ValueError("Device does not belong to tenant")
@@ -144,75 +149,121 @@ async def publish_command(
         await cmdrepo.mark_sent(conn, cmd_id=cmd_id)
     return cmd_id
 
-
 async def run_mqtt_forever():
     pool = await get_pool()
-
+    print("MQTT: run_mqtt_forever entered", flush=True)
     while True:
         logger.info("Starting MQTT runtime...")
         try:
-            logger.info("Connecting to MQTT broker at %s:%d (env=%s)", settings.mqtt_host, settings.mqtt_port, settings.app_env)
+            logger.info(
+                "Connecting to MQTT broker at %s:%d (env=%s)",
+                settings.mqtt_host, settings.mqtt_port, settings.app_env
+            )
 
-            client = Client(
+            client_id = f"pvz-backend-{uuid.uuid4().hex[:8]}"
+            async with Client(
                 settings.mqtt_host,
                 settings.mqtt_port,
                 username=settings.mqtt_username or None,
                 password=settings.mqtt_password or None,
                 keepalive=30,
-            )
+                client_id=client_id,
+            ) as client:
+                logger.info("Connected to MQTT broker client_id=%s", client_id)
 
-            async with asyncio.timeout(10):
-                async with client as client:
-                    logger.info("Connected to MQTT broker")
 
-                    async with client.unfiltered_messages() as messages:
-                        await client.subscribe(TOPIC_HUM, qos=1)
-                        await client.subscribe(TOPIC_LOC, qos=1)
-                        await client.subscribe(TOPIC_STATE, qos=1)
-                        await client.subscribe(TOPIC_ACK, qos=1)
-
+                try:
+                    async with client.messages() as messages:
+                        async with asyncio.timeout(10):
+                            await client.subscribe(TOPIC_HUM, qos=1)
+                            await client.subscribe(TOPIC_LOC, qos=1)
+                            await client.subscribe(TOPIC_STATE, qos=1)
+                            await client.subscribe(TOPIC_ACK, qos=1)
                         logger.info("Subscribed to topics")
-
                         logger.info("MQTT runtime started, listening for messages...")
-                        async for msg in messages:
+
+                        msg_iter = messages.__aiter__()
+                        while True:
+                            try:
+                                msg = await asyncio.wait_for(anext(msg_iter), timeout=60)
+                            except asyncio.TimeoutError:
+                                logger.debug("No MQTT messages for 60s (still connected)")
+                                continue
+                            except StopAsyncIteration:
+                                logger.warning("MQTT messages stream ended (connection closed). Reconnecting...")
+                                break
+
                             try:
                                 topic_str = str(msg.topic)
+                                payload = msg.payload.decode("utf-8", errors="ignore")
+                                logger.warning("RAW MQTT: topic=%s payload=%r retain=%s qos=%s", topic_str, payload[:200], getattr(msg, "retain", None), getattr(msg, "qos", None))
                                 meta = _split_topic(topic_str)
                                 if not meta:
-                                    logger.debug("Ignoring topic with insufficient parts: %s", topic_str)
+                                    logger.info("SKIP: topic has insufficient parts: %s", topic_str)
                                     continue
 
                                 env, tenant_name, kind, device_id, leaf = meta
 
-                                logger.debug("Message meta env=%s tenant=%s kind=%s device=%s leaf=%s", env, tenant_name, kind, device_id, leaf)
-
                                 if env != settings.app_env:
-                                    logger.info("Ignoring message from env=%s because app_env=%s", env, settings.app_env)
+                                    logger.info("SKIP: env mismatch env=%s app_env=%s topic=%s", env, settings.app_env, topic_str)
                                     continue
-
-                                payload = msg.payload.decode("utf-8", errors="ignore")
+                                logger.warning("RAW OK, going to parse+store")
 
                                 async with pool.acquire() as conn:
-                                    belongs = await _device_belongs(conn, device_id, tenant_name)
-                                    if not belongs:
-                                        logger.info("Skipping message: device %s does not belong to tenant %s", device_id, tenant_name)
-                                        continue
+                                    logger.warning("Processing MQTT message for tenant=%s device=%s leaf=%s", tenant_name, device_id, leaf)
+                                    resolved = await devrepo.resolve_device_uuid(conn, device_id)
+                                    if not resolved:
+                                        resolved = await devrepo.get_or_create_by_external_id(
+                                            conn,
+                                            tenant_name=tenant_name,
+                                            external_id=device_id,
+                                            model="auto",
+                                        )
+                                        if resolved:
+                                            logger.info("Auto-provisioned device external_id=%s for tenant=%s -> %s", device_id, tenant_name, resolved)
+                                        else:
+                                            logger.warning("Cannot provision device=%s: tenant=%s not found?", device_id, tenant_name)
+                                            continue
 
-                                    await _set_rls(conn, tenant_name)
+                                    logger.warning("Resolved device identifier %s to UUID %s", device_id, resolved)
+
+                                    belongs = await _device_belongs(conn, resolved, tenant_name)
+                                    if not belongs:
+                                        logger.warning(
+                                            "Skipping message: device %s does not belong to tenant %s",
+                                            resolved, tenant_name
+                                        )
+                                        continue
+                                    
+                                    logger.warning("Device %s belongs to tenant %s", resolved, tenant_name)
+
+                                    # await _set_rls(conn, tenant_name)
+                                    
+                                    logger.warning("Set RLS for tenant %s", tenant_name)
 
                                     if leaf == "humidity":
-                                        await _handle_humidity(payload, conn)
+                                        await _handle_humidity(payload, conn, external_id=device_id, device_uuid=resolved)
                                     elif leaf == "location":
-                                        await _handle_location(payload, conn, device_id)
+                                        await _handle_location(payload, conn, external_id=device_id, device_uuid=resolved)
                                     elif leaf == "state":
-                                        await _handle_state(payload, conn, device_id)
+                                        await _handle_state(payload, conn, external_id=device_id, device_uuid=resolved)
                                     elif leaf == "ack":
                                         await _handle_ack(payload, conn)
                                     else:
-                                        logger.debug("Unknown leaf %s, ignoring", leaf)
+                                        logger.warning("Unknown leaf %s, ignoring", leaf)
+                                    logger.warning("Stored message: device=%s leaf=%s tenant=%s", resolved, leaf, tenant_name)
+
 
                             except Exception:
                                 logger.exception("Error processing MQTT message")
+                except MqttError as e:
+                    logger.exception("MQTT error: %r", e)
+                    await asyncio.sleep(2)
+                    continue
+                except Exception:
+                    logger.exception("MQTT unexpected crash")
+                    await asyncio.sleep(2)
+                    continue
 
         except TimeoutError:
             logger.exception("Timeout while connecting/subscribing to MQTT, retrying in 2s")
