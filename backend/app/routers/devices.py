@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from typing import List
 import asyncpg
 from ..deps import db_conn, tenant_guard
@@ -9,11 +9,12 @@ from ..mqtt_runtime import publish_command
 router = APIRouter(prefix="/devices", tags=["devices"])
 
 @router.get("/", response_model=List[DeviceOut])
-async def list_devices(tenant_id: str = Depends(tenant_guard), conn: asyncpg.Connection = Depends(db_conn)):
-    rows = await repo.list_devices(conn, tenant_id)
+async def list_devices(tenant_id: str | None = Query(None, alias='tenant_id'), tenant_from_token: str = Depends(tenant_guard), conn: asyncpg.Connection = Depends(db_conn)):
+    effective_tenant = tenant_id or tenant_from_token
+    rows = await repo.list_devices(conn, effective_tenant)
     return [
         DeviceOut(
-            device_id=r["device_id"], model=r["model"], status=r["status"],
+            device_id=r["device_id"], external_id=r["external_id"], model=r["model"], status=r["status"],
             rssi=r["rssi"], snr=r["snr"], battery=r["battery_level"], online=r["online"],
             lat=r["lat"], lon=r["lon"], location_updated_at=r["location_updated_at"],
         )

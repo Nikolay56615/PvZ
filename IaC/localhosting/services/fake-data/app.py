@@ -140,7 +140,7 @@ def run_faker() -> None:
     env = os.getenv("ENV", "dev")
     tenant = os.getenv("TENANT", "fake")
 
-    devices_count = int(os.getenv("DEVICES", "1"))
+    devices_count = int(os.getenv("DEVICES", "5"))
     state_period = float(os.getenv("STATE_PERIOD", "5.0"))
     loc_period = float(os.getenv("LOCATION_PERIOD", "10.0"))
     humidity_period = float(os.getenv("HUMIDITY_PERIOD", "1.0"))
