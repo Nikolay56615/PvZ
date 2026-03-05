@@ -12,8 +12,8 @@ def now_iso() -> str:
 def main() -> None:
     broker_host = os.getenv("MQTT_HOST", "5.129.250.254")
     broker_port = int(os.getenv("MQTT_PORT", "1883"))
-    username = os.getenv("MQTT_USERNAME", "dynsec-admin")
-    password = os.getenv("MQTT_PASSWORD", "change_me_admin")
+    username = os.getenv("MQTT_USERNAME", False)
+    password = os.getenv("MQTT_PASSWORD", False)
     env = os.getenv("ENV", "dev")
     tenant = os.getenv("TENANT", "fake")
 
@@ -42,8 +42,11 @@ def main() -> None:
         else:
             print("[sub] connection failed, check host/port/creds")
 
-    def on_disconnect(c: mqtt.Client, userdata, rc):
-        print(f"[sub] disconnected rc={rc}")
+    def on_disconnect(c, userdata, rc):
+        print(f"[faker] {c._client_id.decode()} disconnected rc={rc}")
+
+    def on_log(c, userdata, level, buf):
+        print(f"[mqtt-log] {c._client_id.decode()} {buf}")
 
     def on_message(c: mqtt.Client, userdata, msg: mqtt.MQTTMessage):
         try:
@@ -56,14 +59,15 @@ def main() -> None:
             f"[{ts}] topic={msg.topic} qos={msg.qos} "
             f"payload={payload_str}"
         )
-
-    client.on_connect = on_connect
     client.on_disconnect = on_disconnect
+    client.on_log = on_log
+    client.on_connect = on_connect
     client.on_message = on_message
 
 
     try:
         client.connect(broker_host, broker_port, keepalive=30)
+        client.enable_logger()
         client.loop_forever(retry_first_connection=True)
     except KeyboardInterrupt:
         print("\n[sub] interrupted by user, exiting...")
