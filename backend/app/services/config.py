@@ -1,4 +1,5 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Any
+from pydantic_settings import BaseSettings, SettingsConfigDict, field_validator
 
 class Settings(BaseSettings):
     app_secret: str = "change_me"
@@ -24,6 +25,18 @@ class Settings(BaseSettings):
     dynsec_admin_password: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    
+    allow_origin: list[str] = ["http://localhost:5173"]
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    
+    @field_validator('allow_origin', mode='before')
+    @classmethod
+    def split_string_into_list(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(',')]
+        return v
 
     @property
     def dsn(self) -> str:
