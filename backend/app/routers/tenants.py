@@ -13,7 +13,7 @@ from ..services.mosq_dynsec import DynSecError
 router = APIRouter(prefix="/tenants", tags=["tenants"])
 
 
-@router.get("/", summary="Список тенантов для пользователя")
+@router.get("", summary="Список тенантов для пользователя")
 async def api_list_tenants(user=Depends(current_user), conn: asyncpg.Connection = Depends(db_conn)):
     rows = await conn.fetch(
         "SELECT tenant_id::text, tenant_name AS name, tenant_owner AS description, created_at FROM iot.tenant WHERE tenant_owner = $1 OR tenant_id = (SELECT tenant_id FROM iot.users WHERE name = $1)",
@@ -25,7 +25,7 @@ def _require_admin(user: dict):
     if user.get("permissions") not in {"ADMIN","OWNER"}:
         raise HTTPException(403, "Not enough permissions")
 
-@router.post("/", summary="Создать тенант (роли + ACL)")
+@router.post("", summary="Создать тенант (роли + ACL)")
 async def api_create_tenant(payload: TenantCreateIn, user=Depends(current_user), conn: asyncpg.Connection = Depends(db_conn)):
     tenant_name = payload.tenant
     tenant_id = await conn.fetchval("SELECT tenant_id::text FROM iot.tenant WHERE tenant_name = $1", tenant_name)
