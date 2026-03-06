@@ -49,13 +49,13 @@ async def _shutdown():
 async def root():
     return {"message": "IoT Backend is running"}
 
-@app.get("/api/health")
+@app.get("/health")
 async def health():
     return {"status": "ok"}
 
-@app.get("/api/ready")
+@app.get("/ready")
 async def ready():
     return {"status": "ready"}
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8001, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=443, reload=True)
