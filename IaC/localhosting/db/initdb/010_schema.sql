@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS iot.devices (
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now()
 );
-
+ALTER TABLE iot.devices ADD COLUMN IF NOT EXISTS external_id text NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS devices_tenant_external_uq
   ON iot.devices (tenant_id, external_id);
 
@@ -130,6 +130,7 @@ CREATE INDEX IF NOT EXISTS monitoring_raw_ts_idx
 
 CREATE INDEX IF NOT EXISTS monitoring_raw_device_ts_idx
   ON iot.monitoring_raw (device_id, sent_ts DESC);
+DROP MATERIALIZED VIEW IF EXISTS iot.monitoring_nm;
 DROP VIEW IF EXISTS iot.monitoring_nm;
 CREATE VIEW iot.monitoring_nm AS
 SELECT
