@@ -1,6 +1,6 @@
 <template>
   <div class="card p-28" style="margin-top:20px">
-    <!-- Гость: только большие кнопки входа/регистрации -->
+    <!-- Гость -->
     <div v-if="!isAuth" class="hero">
       <h2>PVZ · мониторинг влажности</h2>
       <p>
@@ -27,14 +27,22 @@
       </div>
     </div>
 
-    <!-- Авторизованный: как было раньше -->
     <div v-else class="hero">
       <h2>Добро пожаловать</h2>
       <p>Это IoT-система для мониторинга влажности почвы.</p>
+
       <div class="actions">
-        <router-link class="btn primary" to="/charts">ГРАФИК</router-link>
-        <button class="btn" type="button">КАРТА</button>
-        <button class="btn" type="button">УПРАВЛЕНИЕ</button>
+        <router-link class="btn primary" to="/charts">
+          ГРАФИК
+        </router-link>
+
+        <router-link class="btn" to="/map">
+          КАРТА
+        </router-link>
+
+        <button class="btn" type="button">
+          УПРАВЛЕНИЕ
+        </button>
       </div>
     </div>
   </div>
@@ -47,5 +55,5 @@ const { isAuth } = useAuth()
 </script>
 
 <style scoped>
-/* hero / actions / btn тянутся из style.css */
+/* стили остаются */
 </style>
