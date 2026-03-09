@@ -8,36 +8,27 @@
       </div>
 
       <nav class="tabs">
-        <router-link
-          to="/"
-          :class="['tab', { active: route.path === '/' }]"
-        >
+        <router-link to="/" class="tab">
           Главная
         </router-link>
 
-        <router-link
-          to="/charts"
-          :class="['tab', { active: route.path === '/charts' }]"
-        >
+        <router-link to="/charts" class="tab">
           Графики
         </router-link>
 
-        <router-link
-          v-if="isAuth"
-          to="/tenants"
-          :class="['tab', { active: route.path === '/tenants' }]"
-        >
+        <router-link v-if="isAuth" to="/tenants" class="tab">
           Тенанты
         </router-link>
 
-        <!-- пока заглушки -->
-        <button class="tab" type="button">Карта</button>
+        <router-link v-if="isAuth" to="/map" class="tab">
+          Карта
+        </router-link>
+
         <button class="tab" type="button">Управление</button>
         <button class="tab" type="button">Настройки</button>
 
         <span style="flex:1"></span>
 
-        <!-- справа: либо "войти/регистрация", либо "вошли как / выйти" -->
         <template v-if="isAuth">
           <span class="helper user-label">
             Вошли как {{ userEmail }}
@@ -65,17 +56,31 @@
 </template>
 
 <script setup>
-import { useRoute, useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useToast } from 'vue-toastification'
-import { useAuth } from './auth'
 
-const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { isAuth, userEmail, logout } = useAuth()
+
+const isAuth = ref(false)
+const userEmail = ref('')
+
+onMounted(() => {
+  const token = localStorage.getItem('pvz_token')
+  const email = localStorage.getItem('pvz_email')
+
+  isAuth.value = !!token
+  userEmail.value = email || ''
+})
 
 function handleLogout() {
-  logout()
+  localStorage.removeItem('pvz_token')
+  localStorage.removeItem('pvz_email')
+
+  isAuth.value = false
+  userEmail.value = ''
+
   toast.info('Вы вышли из аккаунта')
   router.push('/login')
 }
