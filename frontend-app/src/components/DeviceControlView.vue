@@ -8,7 +8,6 @@
         <div>
           <div class="device-shell__eyebrow">{{ device.tenant_name || 'Тенант' }}</div>
           <h2 class="section-title device-shell__title">{{ displayName }}</h2>
-          <div class="helper">Системное имя: {{ backendName }}</div>
         </div>
 
         <router-link to="/management" class="btn">К списку устройств</router-link>
@@ -86,30 +85,6 @@
           </button>
         </div>
       </div>
-
-      <div class="card p-24">
-        <h3 class="section-title">Имя устройства</h3>
-        <div class="helper">
-          Здесь можно задать удобное имя устройства.
-        </div>
-
-        <input
-          v-model="draftAlias"
-          class="input"
-          style="margin-top:14px"
-          placeholder="Введите имя устройства"
-        />
-
-        <div class="rename-actions">
-          <button class="btn primary" type="button" @click="saveAlias">
-            Сохранить имя
-          </button>
-
-          <button class="btn" type="button" @click="resetAlias">
-            Сбросить имя
-          </button>
-        </div>
-      </div>
     </section>
   </div>
 
@@ -125,13 +100,10 @@ import { useToast } from 'vue-toastification'
 import { api } from '../api'
 import {
   formatBattery,
-  getBackendDeviceName,
-  getDeviceAlias,
   getDisplayDeviceName,
   getPowerStateLabel,
   getTenantAccent,
   isBatteryLow,
-  setDeviceAlias,
 } from '../devicePresentation'
 
 const route = useRoute()
@@ -140,7 +112,6 @@ const toast = useToast()
 const device = ref(null)
 const loading = ref(false)
 const error = ref('')
-const draftAlias = ref('')
 const pendingCommand = ref('')
 
 const deviceId = computed(() => String(route.params.deviceId || ''))
@@ -186,7 +157,6 @@ function devicesPath(tenantIdValue = '') {
   return `/devices/${query}`
 }
 
-const backendName = computed(() => (device.value ? getBackendDeviceName(device.value) : ''))
 const displayName = computed(() => (device.value ? getDisplayDeviceName(device.value) : ''))
 
 const coordsText = computed(() => {
@@ -230,7 +200,6 @@ async function loadDevice() {
             (item) => String(item.tenant_id) === String(currentTenantId)
           )
           device.value = normalizeDevice(match, tenant)
-          draftAlias.value = getDeviceAlias(device.value.device_id)
           return
         }
       } catch (e) {
@@ -247,7 +216,6 @@ async function loadDevice() {
 
       if (match) {
         device.value = normalizeDevice(match)
-        draftAlias.value = getDeviceAlias(device.value.device_id)
         return
       }
     } catch (e) {
@@ -284,19 +252,6 @@ async function sendCommand(type) {
   } finally {
     pendingCommand.value = ''
   }
-}
-
-function saveAlias() {
-  if (!device.value) return
-  setDeviceAlias(device.value.device_id, draftAlias.value)
-  toast.success('Имя устройства сохранено')
-}
-
-function resetAlias() {
-  if (!device.value) return
-  draftAlias.value = ''
-  setDeviceAlias(device.value.device_id, '')
-  toast.info('Имя устройства сброшено')
 }
 
 onMounted(loadDevice)
@@ -346,7 +301,7 @@ onMounted(loadDevice)
 .device-layout {
   display: grid;
   gap: 18px;
-  grid-template-columns: 1.1fr 0.9fr;
+  grid-template-columns: 1fr;
 }
 
 .info-box {
@@ -363,15 +318,9 @@ onMounted(loadDevice)
   margin-bottom: 8px;
 }
 
-.actions-grid,
-.rename-actions {
+.actions-grid {
   display: grid;
   gap: 12px;
-}
-
-.rename-actions {
-  margin-top: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .warning-chip {
@@ -390,8 +339,7 @@ onMounted(loadDevice)
 
 @media (max-width: 900px) {
   .device-shell__grid,
-  .device-layout,
-  .rename-actions {
+  .device-layout {
     grid-template-columns: 1fr;
   }
 }

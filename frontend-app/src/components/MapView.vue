@@ -24,7 +24,6 @@ import { onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
 import { api } from '../api'
 import {
   formatBattery,
-  getBackendDeviceName,
   getDisplayDeviceName,
   getPowerState,
   getPowerStateLabel,
@@ -179,7 +178,6 @@ function balloon(m) {
   const tenantInfo = resolveTenantInfo(m)
   const tenantAccent = getTenantAccent(tenantInfo.tenant_id || tenantInfo.tenant_name || 'default')
   const displayName = getDisplayDeviceName(m)
-  const backendName = getBackendDeviceName(m)
   const battery = formatBattery(m.battery ?? m.battery_level)
 
   return `
@@ -197,9 +195,6 @@ function balloon(m) {
         <div style="min-width:0;">
           <div style="font-size:16px; font-weight:800; line-height:1.2; word-break:break-word;">
             ${escapeHtml(displayName)}
-          </div>
-          <div style="font-size:12px; color:#64748b; margin-top:4px; word-break:break-word;">
-            Backend: ${escapeHtml(backendName)}
           </div>
         </div>
 
@@ -304,19 +299,11 @@ async function loadMarkers() {
   }
 }
 
-function handleAliasesChanged() {
-  loadMarkers()
-}
-
 onMounted(async () => {
-  window.addEventListener('pvz-device-aliases-updated', handleAliasesChanged)
-  window.addEventListener('storage', handleAliasesChanged)
   await loadMarkers()
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('pvz-device-aliases-updated', handleAliasesChanged)
-  window.removeEventListener('storage', handleAliasesChanged)
   clearPlacemarks()
 
   if (map.value) {
