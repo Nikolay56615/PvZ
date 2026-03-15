@@ -7,6 +7,8 @@ import LoginView from './components/LoginView.vue'
 import RegisterView from './components/RegisterView.vue'
 import TenantsView from './components/TenantsView.vue'
 import MapView from './components/MapView.vue'
+import ManagementView from './components/ManagementView.vue'
+import DeviceControlView from './components/DeviceControlView.vue'
 
 const routes = [
   { path: '/', component: HomeView },
@@ -16,6 +18,9 @@ const routes = [
   { path: '/tenants', component: TenantsView, meta: { requiresAuth: true } },
   { path: '/map', component: MapView, meta: { requiresAuth: true } },
   { path: '/charts', component: ChartsView, meta: { requiresAuth: true } },
+
+  { path: '/management', component: ManagementView, meta: { requiresAuth: true } },
+  { path: '/management/:deviceId', component: DeviceControlView, meta: { requiresAuth: true } },
 ]
 
 const router = createRouter({
@@ -34,3 +39,4 @@ router.beforeEach((to, from, next) => {
 })
 
 export { router }
+

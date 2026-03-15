@@ -3,15 +3,21 @@
     <section class="card p-24 toolbar-card">
       <div class="toolbar-head">
         <div>
-          <h2 class="section-title" style="margin-bottom:6px">Управление устройствами</h2>
+          <h2 class="section-title" style="margin-bottom: 6px;">Управление устройствами</h2>
           <div class="helper">
-            Поиск работает по имени с бэка, по имени для веба, по device_id и tenant.
+            Здесь можно искать устройства, открывать карточки и добавлять новые датчики.
           </div>
         </div>
 
-        <button class="btn" type="button" @click="loadAllDevices" :disabled="loading">
-          {{ loading ? 'Обновляем...' : 'Обновить список' }}
-        </button>
+        <div class="toolbar-actions">
+          <button class="btn" type="button" @click="loadAllDevices" :disabled="loading">
+            {{ loading ? 'Обновляем...' : 'Обновить список' }}
+          </button>
+
+          <button class="btn primary" type="button" @click="handleAddDevice">
+            Добавить устройство
+          </button>
+        </div>
       </div>
 
       <div class="toolbar-grid">
@@ -34,11 +40,23 @@
       </div>
     </section>
 
-    <div v-if="error" class="card p-24 error-card">
-      {{ error }}
-    </div>
+    <section v-if="loading" class="card p-24 state-card">
+      <h3 style="margin: 0 0 8px;">Загрузка</h3>
+      <div class="helper">Получаем список устройств...</div>
+    </section>
 
-    <section v-if="filteredDevices.length" class="devices-grid">
+    <section v-else-if="error" class="card p-24 state-card">
+      <h3 style="margin: 0 0 8px;">Не удалось открыть управление</h3>
+      <div class="helper" style="color: #b00020; margin-bottom: 16px;">
+        {{ error }}
+      </div>
+
+      <button class="btn" type="button" @click="loadAllDevices">
+        Попробовать снова
+      </button>
+    </section>
+
+    <section v-else-if="filteredDevices.length" class="devices-grid">
       <article
         v-for="device in filteredDevices"
         :key="device.device_id"
@@ -55,7 +73,7 @@
               {{ getDisplayDeviceName(device) }}
             </h3>
 
-            <div class="helper">Backend: {{ getBackendDeviceName(device) }}</div>
+            <div class="helper">Системное имя: {{ getBackendDeviceName(device) }}</div>
           </div>
 
           <span class="status-pill" :class="getPowerState(device) ? 'online' : 'offline'">
@@ -88,9 +106,16 @@
       </article>
     </section>
 
-    <div v-else-if="!loading" class="card p-24 empty-state">
-      Устройства не найдены.
-    </div>
+    <section v-else class="card p-24 state-card">
+      <h3 style="margin: 0 0 8px;">Устройств пока нет</h3>
+      <div class="helper" style="margin-bottom: 16px;">
+        Когда появятся устройства, они отобразятся здесь.
+      </div>
+
+      <button class="btn primary" type="button" @click="handleAddDevice">
+        Добавить устройство
+      </button>
+    </section>
   </div>
 </template>
 
@@ -126,32 +151,33 @@ function normalizeRows(payload) {
 
 function normalizeTenant(raw) {
   return {
-    ...raw,
-    tenant_id: raw?.tenant_id ?? raw?.id ?? '',
-    name: raw?.name ?? raw?.tenant_name ?? raw?.tenant_id ?? raw?.id ?? 'Без имени',
+    tenant_id: String(raw?.tenant_id ?? raw?.id ?? raw?.name ?? ''),
+    name: String(raw?.name ?? raw?.tenant_name ?? raw?.tenant_id ?? raw?.id ?? 'Тенант'),
   }
 }
 
 function normalizeDevice(raw, tenant = null) {
   return {
     ...raw,
-    device_id: raw?.device_id ?? raw?.id ?? raw?.external_id ?? raw?.name,
-    tenant_id:
+    device_id: String(raw?.device_id ?? raw?.id ?? raw?.external_id ?? raw?.name ?? ''),
+    tenant_id: String(
       raw?.tenant_id ??
       raw?.tenant?.tenant_id ??
       raw?.tenant?.id ??
       tenant?.tenant_id ??
-      '',
-    tenant_name:
+      ''
+    ),
+    tenant_name: String(
       raw?.tenant_name ??
       raw?.tenant?.name ??
       tenant?.name ??
-      'Тенант',
+      'Тенант'
+    ),
   }
 }
 
-function devicesPath(tenantId = '') {
-  const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
+function devicesPath(tenantIdValue = '') {
+  const query = tenantIdValue ? `?tenant_id=${encodeURIComponent(tenantIdValue)}` : ''
   return `/devices/${query}`
 }
 
@@ -165,6 +191,10 @@ function deviceLink(device) {
     ? `?tenant_id=${encodeURIComponent(device.tenant_id)}`
     : ''
   return `/management/${encodeURIComponent(device.device_id)}${query}`
+}
+
+function handleAddDevice() {
+  alert('Форму добавления устройства подключим следующим шагом')
 }
 
 const filteredDevices = computed(() => {
@@ -209,37 +239,37 @@ async function loadAllDevices() {
 
     const unique = new Map()
     for (const device of collected) {
-      if (!device?.device_id) continue
-      unique.set(String(device.device_id), device)
+      if (!device.device_id) continue
+      unique.set(device.device_id, device)
     }
 
     devices.value = Array.from(unique.values())
-
-    if (!devices.value.length) {
-      error.value = 'API не вернул список устройств'
-    }
   } catch (e) {
-    error.value = e?.body?.detail || e?.message || 'Не удалось загрузить устройства'
+    error.value = e?.body?.detail || e?.message || 'Не удалось загрузить страницу управления'
   } finally {
     loading.value = false
   }
 }
 
-onMounted(loadAllDevices)
+onMounted(() => {
+  loadAllDevices().catch((e) => {
+    console.error('ManagementView crashed during load', e)
+    error.value = e?.message || 'Ошибка при загрузке управления'
+    loading.value = false
+  })
+})
 </script>
 
 <style scoped>
 .management-page {
+  max-width: 1180px;
+  margin: 24px auto;
   display: grid;
   gap: 18px;
-  margin-top: 24px;
 }
 
 .toolbar-card,
-.error-card,
-.empty-state {
-  max-width: 1180px;
-  margin: 0 auto;
+.state-card {
   width: 100%;
 }
 
@@ -251,6 +281,12 @@ onMounted(loadAllDevices)
   flex-wrap: wrap;
 }
 
+.toolbar-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .toolbar-grid {
   margin-top: 18px;
   display: grid;
@@ -259,8 +295,6 @@ onMounted(loadAllDevices)
 }
 
 .devices-grid {
-  max-width: 1180px;
-  margin: 0 auto;
   width: 100%;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -357,3 +391,4 @@ onMounted(loadAllDevices)
   }
 }
 </style>
+
