@@ -24,16 +24,15 @@
             Карта
           </router-link>
 
-          <button class="tab" type="button">
+          <router-link to="/management" class="tab">
             Управление
-          </button>
+          </router-link>
 
           <span style="flex:1"></span>
 
           <span class="helper user-label">
             Вошли как {{ userEmail }}
           </span>
-
           <button class="tab" type="button" @click="handleLogout">
             Выйти
           </button>
@@ -45,7 +44,6 @@
           <router-link to="/login" class="tab">
             Войти
           </router-link>
-
           <router-link to="/register" class="tab">
             Регистрация
           </router-link>
