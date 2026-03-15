@@ -12,14 +12,10 @@
       </button>
     </div>
 
-<div
-  ref="mapEl"
-  style="width:100%; height:75vh; min-height:500px; border-radius:14px; overflow:hidden;"
-></div>
-
-    <div class="helper mt-12">
-      Источник данных: <code>/map/markers</code>
-    </div>
+    <div
+      ref="mapEl"
+      style="width:100%; height:75vh; min-height:500px; border-radius:14px; overflow:hidden;"
+    ></div>
   </div>
 </template>
 
@@ -63,9 +59,11 @@ async function ensureMap() {
 
 function clearPlacemarks() {
   if (!map.value) return
+
   for (const pm of placemarks.value) {
     map.value.geoObjects.remove(pm)
   }
+
   placemarks.value = []
 }
 
@@ -74,16 +72,97 @@ function fmt(v) {
   return String(v)
 }
 
+function getMarkersFromResponse(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.markers)) return payload.markers
+  if (Array.isArray(payload?.data)) return payload.data
+  return []
+}
+
 function balloon(m) {
-  const status = m.online ? 'online' : 'offline'
+  const status = m.online ? 'В сети' : 'Не в сети'
+  const statusColor = m.online ? '#16a34a' : '#ef4444'
+  const batteryValue =
+    m.battery === null || m.battery === undefined || m.battery === ''
+      ? 'n/a'
+      : `${fmt(m.battery)}%`
+
   return `
-    <div style="min-width:220px">
-      <div><strong>Device:</strong> ${fmt(m.device_id)}</div>
-      <div><strong>Status:</strong> ${status}</div>
-      <div><strong>Battery:</strong> ${fmt(m.battery)}%</div>
-      <div><strong>Last seen:</strong> ${fmt(m.last_seen)}</div>
-      <div><strong>Lat:</strong> ${fmt(m.lat)}</div>
-      <div><strong>Lon:</strong> ${fmt(m.lon)}</div>
+    <div style="
+      min-width: 280px;
+      padding: 18px;
+      border-radius: 20px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #0f172a;
+    ">
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px;">
+        <div>
+          <div style="font-size:12px; color:#64748b; margin-bottom:4px; letter-spacing:.04em; text-transform:uppercase;">
+            Устройство
+          </div>
+          <div style="font-size:18px; font-weight:700; line-height:1.2;">
+            ${fmt(m.device_id)}
+          </div>
+        </div>
+
+        <div style="
+          padding:6px 10px;
+          border-radius:999px;
+          background:${m.online ? '#dcfce7' : '#fee2e2'};
+          color:${statusColor};
+          font-size:12px;
+          font-weight:700;
+          white-space:nowrap;
+        ">
+          ${status}
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px;">
+        <div style="
+          padding:12px;
+          border-radius:16px;
+          background:#ffffff;
+          border:1px solid rgba(224, 231, 255, 0.95);
+        ">
+          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">Заряд</div>
+          <div style="font-size:16px; font-weight:700;">${batteryValue}</div>
+        </div>
+
+        <div style="
+          padding:12px;
+          border-radius:16px;
+          background:#ffffff;
+          border:1px solid rgba(224, 231, 255, 0.95);
+        ">
+          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">Последняя активность</div>
+          <div style="font-size:14px; font-weight:600; line-height:1.35;">${fmt(m.last_seen)}</div>
+        </div>
+
+        <div style="
+          padding:12px;
+          border-radius:16px;
+          background:#ffffff;
+          border:1px solid rgba(224, 231, 255, 0.95);
+        ">
+          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">Широта</div>
+          <div style="font-size:14px; font-weight:600;">${fmt(m.lat)}</div>
+        </div>
+
+        <div style="
+          padding:12px;
+          border-radius:16px;
+          background:#ffffff;
+          border:1px solid rgba(224, 231, 255, 0.95);
+        ">
+          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">Долгота</div>
+          <div style="font-size:14px; font-weight:600;">${fmt(m.lon)}</div>
+        </div>
+      </div>
     </div>
   `
 }
@@ -94,22 +173,35 @@ async function loadMarkers() {
   try {
     await ensureMap()
 
-    const markers = await api.get('/map/markers')
+    const response = await api.get('/map/markers')
+    const markers = getMarkersFromResponse(response)
 
     clearPlacemarks()
 
-    if (!Array.isArray(markers) || markers.length === 0) return
-
-    const first = markers.find(m => m.lat != null && m.lon != null)
-    if (first) {
-      map.value.setCenter([Number(first.lat), Number(first.lon)], 14)
+    if (!markers.length) {
+      error.value = 'Маркеры не найдены'
+      return
     }
 
-    for (const m of markers) {
+    const validMarkers = markers.filter((m) => {
       const lat = Number(m.lat)
       const lon = Number(m.lon)
-      if (isNaN(lat) || isNaN(lon)) continue
+      return !isNaN(lat) && !isNaN(lon)
+    })
 
+    if (!validMarkers.length) {
+      error.value = 'В ответе нет корректных координат'
+      return
+    }
+
+    map.value.setCenter(
+      [Number(validMarkers[0].lat), Number(validMarkers[0].lon)],
+      validMarkers.length === 1 ? 15 : 12
+    )
+
+    for (const m of validMarkers) {
+      const lat = Number(m.lat)
+      const lon = Number(m.lon)
       const preset = m.online ? 'islands#greenDotIcon' : 'islands#redDotIcon'
 
       const pm = new window.ymaps.Placemark(
@@ -135,6 +227,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearPlacemarks()
+
   if (map.value) {
     map.value.destroy()
     map.value = null
