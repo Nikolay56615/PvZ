@@ -4,8 +4,11 @@
       <div class="toolbar-head">
         <div>
           <h2 class="section-title" style="margin-bottom:6px">Управление устройствами</h2>
-          <div class="helper">Поиск работает и по имени с бэкенда, и по имени, которое пользователь задал на вебе.</div>
+          <div class="helper">
+            Поиск работает по имени с бэка, по имени для веба, по device_id и tenant.
+          </div>
         </div>
+
         <button class="btn" type="button" @click="loadAllDevices" :disabled="loading">
           {{ loading ? 'Обновляем...' : 'Обновить список' }}
         </button>
@@ -15,12 +18,16 @@
         <input
           v-model="search"
           class="input"
-          placeholder="Поиск по имени устройства, tenant или device_id"
+          placeholder="Поиск по имени, tenant или device_id"
         />
 
-        <select v-model="tenantFilter" class="select">
+        <select v-model="tenantFilter" class="input">
           <option value="">Все тенанты</option>
-          <option v-for="tenant in tenants" :key="tenant.tenant_id" :value="tenant.tenant_id">
+          <option
+            v-for="tenant in tenants"
+            :key="tenant.tenant_id"
+            :value="tenant.tenant_id"
+          >
             {{ tenant.name }}
           </option>
         </select>
@@ -31,46 +38,57 @@
       {{ error }}
     </div>
 
-    <section class="devices-grid">
+    <section v-if="filteredDevices.length" class="devices-grid">
       <article
         v-for="device in filteredDevices"
         :key="device.device_id"
         class="card device-card"
-        :style="{ '--tenant-accent': getTenantAccent(device.tenant_id || device.tenant_name) }"
+        :style="{ '--tenant-accent': getTenantAccent(device.tenant_id || device.tenant_name || 'default') }"
       >
         <div class="device-card__top">
           <div>
-            <div class="device-card__eyebrow">{{ device.tenant_name || 'Текущий тенант' }}</div>
-            <h3 class="device-card__title">{{ getDisplayDeviceName(device) }}</h3>
+            <div class="device-card__eyebrow">
+              {{ device.tenant_name || 'Тенант' }}
+            </div>
+
+            <h3 class="device-card__title">
+              {{ getDisplayDeviceName(device) }}
+            </h3>
+
             <div class="helper">Backend: {{ getBackendDeviceName(device) }}</div>
           </div>
-          <span class="status-pill" :class="device.online ? 'online' : 'offline'">
-            {{ device.online ? 'В сети' : 'Не в сети' }}
+
+          <span class="status-pill" :class="getPowerState(device) ? 'online' : 'offline'">
+            {{ getPowerStateLabel(device) }}
           </span>
         </div>
 
         <div class="device-card__meta">
           <div class="meta-box">
             <span class="meta-label">Заряд</span>
-            <strong>{{ formatBattery(device.battery) }}</strong>
+            <strong>{{ formatBattery(device.battery ?? device.battery_level) }}</strong>
           </div>
+
           <div class="meta-box">
-            <span class="meta-label">Координаты</span>
+            <span class="meta-label">Местоположение</span>
             <strong>{{ formatCoords(device) }}</strong>
           </div>
         </div>
 
-        <div v-if="isBatteryLow(device.battery)" class="warning-chip">
+        <div v-if="isBatteryLow(device.battery ?? device.battery_level)" class="warning-chip">
           Низкий заряд устройства
         </div>
 
-        <router-link class="btn primary device-card__action" :to="`/management/${device.device_id}?tenant_id=${device.tenant_id}`">
+        <router-link
+          class="btn primary device-card__action"
+          :to="deviceLink(device)"
+        >
           Открыть карточку
         </router-link>
       </article>
     </section>
 
-    <div v-if="!loading && !filteredDevices.length" class="card p-24 empty-state">
+    <div v-else-if="!loading" class="card p-24 empty-state">
       Устройства не найдены.
     </div>
   </div>
@@ -83,6 +101,8 @@ import {
   formatBattery,
   getBackendDeviceName,
   getDisplayDeviceName,
+  getPowerState,
+  getPowerStateLabel,
   getTenantAccent,
   isBatteryLow,
   matchesDeviceSearch,
@@ -95,14 +115,63 @@ const error = ref('')
 const search = ref('')
 const tenantFilter = ref('')
 
+function normalizeRows(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.devices)) return payload.devices
+  if (Array.isArray(payload?.results)) return payload.results
+  return []
+}
+
+function normalizeTenant(raw) {
+  return {
+    ...raw,
+    tenant_id: raw?.tenant_id ?? raw?.id ?? '',
+    name: raw?.name ?? raw?.tenant_name ?? raw?.tenant_id ?? raw?.id ?? 'Без имени',
+  }
+}
+
+function normalizeDevice(raw, tenant = null) {
+  return {
+    ...raw,
+    device_id: raw?.device_id ?? raw?.id ?? raw?.external_id ?? raw?.name,
+    tenant_id:
+      raw?.tenant_id ??
+      raw?.tenant?.tenant_id ??
+      raw?.tenant?.id ??
+      tenant?.tenant_id ??
+      '',
+    tenant_name:
+      raw?.tenant_name ??
+      raw?.tenant?.name ??
+      tenant?.name ??
+      'Тенант',
+  }
+}
+
+function devicesPath(tenantId = '') {
+  const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
+  return `/devices/${query}`
+}
+
 function formatCoords(device) {
   if (device.lat == null || device.lon == null) return 'n/a'
   return `${Number(device.lat).toFixed(4)}, ${Number(device.lon).toFixed(4)}`
 }
 
+function deviceLink(device) {
+  const query = device.tenant_id
+    ? `?tenant_id=${encodeURIComponent(device.tenant_id)}`
+    : ''
+  return `/management/${encodeURIComponent(device.device_id)}${query}`
+}
+
 const filteredDevices = computed(() => {
   return devices.value.filter((device) => {
-    const matchesTenant = !tenantFilter.value || device.tenant_id === tenantFilter.value
+    const matchesTenant =
+      !tenantFilter.value || String(device.tenant_id) === String(tenantFilter.value)
+
     return matchesTenant && matchesDeviceSearch(device, search.value)
   })
 })
@@ -112,27 +181,43 @@ async function loadAllDevices() {
   error.value = ''
 
   try {
-    const tenantList = await api.get('/tenants')
-    tenants.value = Array.isArray(tenantList) ? tenantList : []
+    const tenantsResp = await api.get('/tenants')
+    const tenantRows = normalizeRows(tenantsResp).map(normalizeTenant)
+    tenants.value = tenantRows
 
-    const batches = await Promise.all(
-      tenants.value.map(async (tenant) => {
-        try {
-          const result = await api.get(`/devices?tenant_id=${tenant.tenant_id}`)
-          const rows = Array.isArray(result) ? result : []
-          return rows.map((device) => ({
-            ...device,
-            tenant_id: tenant.tenant_id,
-            tenant_name: tenant.name,
-          }))
-        } catch (e) {
-          console.warn(`Не удалось загрузить устройства tenant ${tenant.name}`, e)
-          return []
-        }
-      })
-    )
+    const collected = []
 
-    devices.value = batches.flat()
+    for (const tenant of tenantRows) {
+      try {
+        const resp = await api.get(devicesPath(tenant.tenant_id))
+        const rows = normalizeRows(resp).map((device) => normalizeDevice(device, tenant))
+        collected.push(...rows)
+      } catch (e) {
+        console.warn('Не удалось загрузить устройства tenant', tenant.tenant_id, e)
+      }
+    }
+
+    if (!collected.length) {
+      try {
+        const fallbackResp = await api.get('/devices/')
+        const fallbackRows = normalizeRows(fallbackResp).map((device) => normalizeDevice(device))
+        collected.push(...fallbackRows)
+      } catch (e) {
+        console.warn('Fallback /devices/ не сработал', e)
+      }
+    }
+
+    const unique = new Map()
+    for (const device of collected) {
+      if (!device?.device_id) continue
+      unique.set(String(device.device_id), device)
+    }
+
+    devices.value = Array.from(unique.values())
+
+    if (!devices.value.length) {
+      error.value = 'API не вернул список устройств'
+    }
   } catch (e) {
     error.value = e?.body?.detail || e?.message || 'Не удалось загрузить устройства'
   } finally {
@@ -208,6 +293,7 @@ onMounted(loadAllDevices)
 .device-card__title {
   margin: 0 0 6px;
   font-size: 22px;
+  line-height: 1.2;
 }
 
 .status-pill {

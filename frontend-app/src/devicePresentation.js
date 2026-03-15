@@ -30,12 +30,24 @@ export function setDeviceAlias(deviceId, alias) {
   const next = readAliases()
   if (alias && alias.trim()) next[deviceId] = alias.trim()
   else delete next[deviceId]
+
   localStorage.setItem(ALIAS_STORAGE_KEY, JSON.stringify(next))
-  window.dispatchEvent(new CustomEvent('pvz-device-aliases-updated', { detail: { deviceId, alias: next[deviceId] || '' } }))
+  window.dispatchEvent(
+    new CustomEvent('pvz-device-aliases-updated', {
+      detail: { deviceId, alias: next[deviceId] || '' },
+    })
+  )
 }
 
 export function getBackendDeviceName(device) {
-  return device?.external_id || device?.model || device?.device_id || 'Устройство'
+  return (
+    device?.external_id ||
+    device?.display_name ||
+    device?.name ||
+    device?.model ||
+    device?.device_id ||
+    'Устройство'
+  )
 }
 
 export function getDisplayDeviceName(device) {
@@ -45,6 +57,7 @@ export function getDisplayDeviceName(device) {
 export function matchesDeviceSearch(device, query) {
   const q = String(query || '').trim().toLowerCase()
   if (!q) return true
+
   const haystack = [
     getDisplayDeviceName(device),
     getBackendDeviceName(device),
@@ -83,4 +96,18 @@ export function formatBattery(value) {
 export function isBatteryLow(value) {
   const num = Number(value)
   return !Number.isNaN(num) && num <= 5
+}
+
+export function getPowerState(device) {
+  return !!(
+    device?.enabled ??
+    device?.is_enabled ??
+    device?.is_on ??
+    device?.power_on ??
+    device?.online
+  )
+}
+
+export function getPowerStateLabel(device) {
+  return getPowerState(device) ? 'Вкл' : 'Выкл'
 }

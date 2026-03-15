@@ -26,6 +26,8 @@ import {
   formatBattery,
   getBackendDeviceName,
   getDisplayDeviceName,
+  getPowerState,
+  getPowerStateLabel,
   getTenantAccent,
   isBatteryLow,
 } from '../devicePresentation'
@@ -34,7 +36,7 @@ const mapEl = ref(null)
 const error = ref('')
 const map = shallowRef(null)
 const placemarks = shallowRef([])
-const currentTenant = ref({ tenant_id: '', name: 'Текущий тенант' })
+const deviceTenantMap = ref(new Map())
 
 function escapeHtml(value) {
   return String(value ?? 'n/a')
@@ -43,6 +45,47 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+}
+
+function normalizeRows(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.markers)) return payload.markers
+  if (Array.isArray(payload?.devices)) return payload.devices
+  if (Array.isArray(payload?.results)) return payload.results
+  return []
+}
+
+function normalizeTenant(raw) {
+  return {
+    ...raw,
+    tenant_id: raw?.tenant_id ?? raw?.id ?? '',
+    name: raw?.name ?? raw?.tenant_name ?? raw?.tenant_id ?? raw?.id ?? 'Тенант',
+  }
+}
+
+function normalizeDevice(raw, tenant = null) {
+  return {
+    ...raw,
+    device_id: raw?.device_id ?? raw?.id ?? raw?.external_id ?? raw?.name,
+    tenant_id:
+      raw?.tenant_id ??
+      raw?.tenant?.tenant_id ??
+      raw?.tenant?.id ??
+      tenant?.tenant_id ??
+      '',
+    tenant_name:
+      raw?.tenant_name ??
+      raw?.tenant?.name ??
+      tenant?.name ??
+      '',
+  }
+}
+
+function devicesPath(tenantId = '') {
+  const query = tenantId ? `?tenant_id=${encodeURIComponent(tenantId)}` : ''
+  return `/devices/${query}`
 }
 
 function loadYmaps() {
@@ -82,83 +125,133 @@ function clearPlacemarks() {
   placemarks.value = []
 }
 
-function getMarkersFromResponse(payload) {
-  if (Array.isArray(payload)) return payload
-  if (Array.isArray(payload?.items)) return payload.items
-  if (Array.isArray(payload?.markers)) return payload.markers
-  if (Array.isArray(payload?.data)) return payload.data
-  return []
+async function buildDeviceTenantMap() {
+  const index = new Map()
+
+  try {
+    const tenantsResp = await api.get('/tenants')
+    const tenants = normalizeRows(tenantsResp).map(normalizeTenant)
+
+    for (const tenant of tenants) {
+      try {
+        const resp = await api.get(devicesPath(tenant.tenant_id))
+        const rows = normalizeRows(resp).map((device) => normalizeDevice(device, tenant))
+
+        for (const row of rows) {
+          if (!row?.device_id) continue
+          index.set(String(row.device_id), {
+            tenant_id: row.tenant_id,
+            tenant_name: row.tenant_name,
+          })
+        }
+      } catch (e) {
+        console.warn('Не удалось собрать tenant map для tenant', tenant.tenant_id, e)
+      }
+    }
+  } catch (e) {
+    console.warn('Не удалось загрузить tenants для карты', e)
+  }
+
+  deviceTenantMap.value = index
+}
+
+function resolveTenantInfo(marker) {
+  const directTenantId = marker?.tenant_id ?? marker?.tenant?.tenant_id ?? ''
+  const directTenantName = marker?.tenant_name ?? marker?.tenant?.name ?? ''
+
+  if (directTenantId || directTenantName) {
+    return {
+      tenant_id: String(directTenantId || ''),
+      tenant_name: String(directTenantName || ''),
+    }
+  }
+
+  const mapped = deviceTenantMap.value.get(String(marker?.device_id || ''))
+  if (mapped) return mapped
+
+  return {
+    tenant_id: '',
+    tenant_name: '',
+  }
 }
 
 function balloon(m) {
-  const tenantAccent = getTenantAccent(currentTenant.value.tenant_id || currentTenant.value.name)
-  const status = m.online ? 'В сети' : 'Не в сети'
+  const tenantInfo = resolveTenantInfo(m)
+  const tenantAccent = getTenantAccent(tenantInfo.tenant_id || tenantInfo.tenant_name || 'default')
   const displayName = getDisplayDeviceName(m)
   const backendName = getBackendDeviceName(m)
   const battery = formatBattery(m.battery ?? m.battery_level)
 
   return `
     <div style="
-      min-width: 300px;
-      padding: 18px;
-      border-radius: 22px;
+      width: 248px;
+      padding: 14px;
+      border-radius: 18px;
       background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
       border: 2px solid ${tenantAccent};
-      box-shadow: 0 18px 40px rgba(15, 23, 42, 0.12);
+      box-shadow: 0 14px 28px rgba(15, 23, 42, 0.10);
       color: #0f172a;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     ">
-      <div style="font-size:12px; color:${tenantAccent}; font-weight:700; text-transform:uppercase; letter-spacing:.05em; margin-bottom:8px;">
-        ${escapeHtml(currentTenant.value.name || 'Текущий тенант')}
-      </div>
-      <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:14px;">
-        <div>
-          <div style="font-size:19px; font-weight:800; line-height:1.2;">${escapeHtml(displayName)}</div>
-          <div style="font-size:13px; color:#64748b; margin-top:4px;">Backend: ${escapeHtml(backendName)}</div>
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start; margin-bottom:10px;">
+        <div style="min-width:0;">
+          <div style="font-size:16px; font-weight:800; line-height:1.2; word-break:break-word;">
+            ${escapeHtml(displayName)}
+          </div>
+          <div style="font-size:12px; color:#64748b; margin-top:4px; word-break:break-word;">
+            Backend: ${escapeHtml(backendName)}
+          </div>
         </div>
-        <div style="padding:6px 10px; border-radius:999px; background:${m.online ? '#dcfce7' : '#fee2e2'}; color:${m.online ? '#15803d' : '#b91c1c'}; font-size:12px; font-weight:700; white-space:nowrap;">
-          ${status}
-        </div>
-      </div>
 
-      <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:10px;">
-        <div style="padding:12px; border-radius:16px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
-          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">Заряд</div>
-          <div style="font-size:16px; font-weight:700;">${escapeHtml(battery)}</div>
-        </div>
-        <div style="padding:12px; border-radius:16px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
-          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">Тенант</div>
-          <div style="font-size:14px; font-weight:600;">${escapeHtml(currentTenant.value.name || 'Текущий тенант')}</div>
-        </div>
-        <div style="padding:12px; border-radius:16px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
-          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">Широта</div>
-          <div style="font-size:14px; font-weight:600;">${escapeHtml(m.lat)}</div>
-        </div>
-        <div style="padding:12px; border-radius:16px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
-          <div style="font-size:12px; color:#64748b; margin-bottom:4px;">Долгота</div>
-          <div style="font-size:14px; font-weight:600;">${escapeHtml(m.lon)}</div>
+        <div style="
+          padding:5px 9px;
+          border-radius:999px;
+          background:${getPowerState(m) ? '#dcfce7' : '#fee2e2'};
+          color:${getPowerState(m) ? '#15803d' : '#b91c1c'};
+          font-size:11px;
+          font-weight:700;
+          white-space:nowrap;
+        ">
+          ${getPowerStateLabel(m)}
         </div>
       </div>
 
-      ${isBatteryLow(m.battery ?? m.battery_level)
-        ? '<div style="margin-top:12px; padding:10px 12px; border-radius:14px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; font-weight:600;">Низкий заряд устройства</div>'
-        : ''}
+      <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:8px;">
+        <div style="padding:10px; border-radius:14px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
+          <div style="font-size:11px; color:#64748b; margin-bottom:4px;">Заряд</div>
+          <div style="font-size:15px; font-weight:700;">${escapeHtml(battery)}</div>
+        </div>
 
-      <a href="/management/${encodeURIComponent(m.device_id)}${currentTenant.value.tenant_id ? `?tenant_id=${encodeURIComponent(currentTenant.value.tenant_id)}` : ''}" style="display:inline-flex; margin-top:14px; padding:10px 16px; border-radius:999px; background:#1d4ed8; color:#fff; text-decoration:none; font-weight:700;">
+        <div style="padding:10px; border-radius:14px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
+          <div style="font-size:11px; color:#64748b; margin-bottom:4px;">Статус</div>
+          <div style="font-size:13px; font-weight:600;">${escapeHtml(getPowerStateLabel(m))}</div>
+        </div>
+
+        <div style="padding:10px; border-radius:14px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
+          <div style="font-size:11px; color:#64748b; margin-bottom:4px;">Широта</div>
+          <div style="font-size:13px; font-weight:600;">${escapeHtml(m.lat)}</div>
+        </div>
+
+        <div style="padding:10px; border-radius:14px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
+          <div style="font-size:11px; color:#64748b; margin-bottom:4px;">Долгота</div>
+          <div style="font-size:13px; font-weight:600;">${escapeHtml(m.lon)}</div>
+        </div>
+      </div>
+
+      ${
+        isBatteryLow(m.battery ?? m.battery_level)
+          ? '<div style="margin-top:10px; padding:9px 10px; border-radius:12px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; font-weight:600; font-size:13px;">Низкий заряд устройства</div>'
+          : ''
+      }
+
+      <a
+        href="/management/${encodeURIComponent(m.device_id)}${tenantInfo.tenant_id ? `?tenant_id=${encodeURIComponent(tenantInfo.tenant_id)}` : ''}"
+        style="display:inline-flex; margin-top:10px; padding:9px 14px; border-radius:999px; background:#1d4ed8; color:#fff; text-decoration:none; font-weight:700; font-size:13px;"
+      >
         Открыть управление
       </a>
     </div>
   `
-}
-
-async function loadCurrentTenant() {
-  try {
-    const tenantList = await api.get('/tenants')
-    const rows = Array.isArray(tenantList) ? tenantList : []
-    currentTenant.value = rows[0] || currentTenant.value
-  } catch (e) {
-    console.warn('Не удалось загрузить тенанты для карты', e)
-  }
 }
 
 async function loadMarkers() {
@@ -166,10 +259,10 @@ async function loadMarkers() {
 
   try {
     await ensureMap()
-    await loadCurrentTenant()
+    await buildDeviceTenantMap()
 
     const response = await api.get('/map/markers')
-    const markers = getMarkersFromResponse(response)
+    const markers = normalizeRows(response)
 
     clearPlacemarks()
 
@@ -192,7 +285,7 @@ async function loadMarkers() {
     for (const m of validMarkers) {
       const lat = Number(m.lat)
       const lon = Number(m.lon)
-      const preset = m.online ? 'islands#greenDotIcon' : 'islands#redDotIcon'
+      const preset = getPowerState(m) ? 'islands#greenDotIcon' : 'islands#redDotIcon'
 
       const pm = new window.ymaps.Placemark(
         [lat, lon],
@@ -225,9 +318,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('pvz-device-aliases-updated', handleAliasesChanged)
   window.removeEventListener('storage', handleAliasesChanged)
   clearPlacemarks()
+
   if (map.value) {
     map.value.destroy()
     map.value = null
   }
 })
 </script>
+

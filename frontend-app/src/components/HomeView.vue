@@ -28,7 +28,35 @@
 
     <div v-else class="hero">
       <h2>Добро пожаловать</h2>
-      <p>Это IoT-система для мониторинга влажности почвы. Все основные разделы теперь вынесены в верхнюю панель.</p>
+      <p>
+        Это IoT-система для мониторинга влажности почвы.
+      </p>
+
+      <div class="actions">
+        <router-link
+          class="btn primary"
+          style="min-width:160px; font-size:18px"
+          to="/charts"
+        >
+          ГРАФИКИ
+        </router-link>
+
+        <router-link
+          class="btn"
+          style="min-width:160px; font-size:18px"
+          to="/map"
+        >
+          КАРТА
+        </router-link>
+
+        <router-link
+          class="btn"
+          style="min-width:160px; font-size:18px"
+          to="/management"
+        >
+          УПРАВЛЕНИЕ
+        </router-link>
+      </div>
     </div>
   </div>
 </template>
@@ -40,5 +68,32 @@ const { isAuth } = useAuth()
 </script>
 
 <style scoped>
-</style>
+.hero {
+  text-align: center;
+  padding: 12px 0 8px;
+}
 
+.hero h2 {
+  margin: 8px 0 12px;
+  font-size: 54px;
+  line-height: 1.05;
+  font-weight: 800;
+  color: #071a45;
+}
+
+.hero p {
+  max-width: 920px;
+  margin: 0 auto;
+  color: #6b7280;
+  font-size: 18px;
+  line-height: 1.6;
+}
+
+.actions {
+  margin-top: 28px;
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+</style>
