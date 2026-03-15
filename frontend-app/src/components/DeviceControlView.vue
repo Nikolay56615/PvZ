@@ -1,12 +1,16 @@
 <template>
   <div class="device-page" v-if="device">
-    <section class="card p-24 device-shell" :style="{ '--tenant-accent': getTenantAccent(device.tenant_id || device.tenant_name) }">
+    <section
+      class="card p-24 device-shell"
+      :style="{ '--tenant-accent': getTenantAccent(device.tenant_id || device.tenant_name || 'default') }"
+    >
       <div class="device-shell__head">
         <div>
-          <div class="device-shell__eyebrow">{{ device.tenant_name || 'Текущий тенант' }}</div>
+          <div class="device-shell__eyebrow">{{ device.tenant_name || 'Тенант' }}</div>
           <h2 class="section-title device-shell__title">{{ displayName }}</h2>
-          <div class="helper">Backend: {{ backendName }}</div>
+          <div class="helper">Системное имя: {{ backendName }}</div>
         </div>
+
         <router-link to="/management" class="btn">К списку устройств</router-link>
       </div>
 
@@ -15,23 +19,33 @@
           <span class="info-label">Имя устройства</span>
           <strong>{{ displayName }}</strong>
         </div>
+
         <div class="info-box">
           <span class="info-label">Заряд</span>
-          <strong>{{ formatBattery(device.battery) }}</strong>
-          <div v-if="isBatteryLow(device.battery)" class="warning-chip mt-10">Низкий заряд, стоит проверить устройство</div>
+          <strong>{{ formatBattery(device.battery ?? device.battery_level) }}</strong>
+          <div
+            v-if="isBatteryLow(device.battery ?? device.battery_level)"
+            class="warning-chip mt-10"
+          >
+            Низкий заряд, стоит проверить устройство
+          </div>
         </div>
+
         <div class="info-box">
           <span class="info-label">Местоположение</span>
           <strong>{{ coordsText }}</strong>
         </div>
+
         <div class="info-box">
           <span class="info-label">Тенант</span>
-          <strong>{{ device.tenant_name || 'Текущий тенант' }}</strong>
+          <strong>{{ device.tenant_name || 'Тенант' }}</strong>
         </div>
+
         <div class="info-box">
-          <span class="info-label">Статус</span>
-          <strong>{{ device.online ? 'В сети' : 'Не в сети' }}</strong>
+          <span class="info-label">Статус устройства</span>
+          <strong>{{ getPowerStateLabel(device) }}</strong>
         </div>
+
         <div class="info-box">
           <span class="info-label">Последнее обновление координат</span>
           <strong>{{ locationUpdatedAt }}</strong>
@@ -42,29 +56,58 @@
     <section class="device-layout">
       <div class="card p-24">
         <h3 class="section-title">Действия</h3>
+
         <div class="actions-grid">
-          <button class="btn primary" type="button" :disabled="pendingCommand === 'power_on'" @click="sendCommand('power_on')">
+          <button
+            class="btn primary"
+            type="button"
+            :disabled="pendingCommand === 'power_on'"
+            @click="sendCommand('power_on')"
+          >
             {{ pendingCommand === 'power_on' ? 'Отправляем...' : 'Включить устройство' }}
           </button>
-          <button class="btn" type="button" :disabled="pendingCommand === 'power_off'" @click="sendCommand('power_off')">
+
+          <button
+            class="btn"
+            type="button"
+            :disabled="pendingCommand === 'power_off'"
+            @click="sendCommand('power_off')"
+          >
             {{ pendingCommand === 'power_off' ? 'Отправляем...' : 'Выключить устройство' }}
           </button>
-          <button class="btn" type="button" :disabled="pendingCommand === 'refresh'" @click="sendCommand('refresh')">
+
+          <button
+            class="btn"
+            type="button"
+            :disabled="pendingCommand === 'refresh'"
+            @click="sendCommand('refresh')"
+          >
             {{ pendingCommand === 'refresh' ? 'Запрашиваем...' : 'Запросить свежие данные' }}
           </button>
-        </div>
-        <div class="helper" style="margin-top:12px">
-          Команды сейчас отправляются как <code>power_on</code>, <code>power_off</code> и <code>refresh</code>. Если на бэкенде ожидаются другие типы, поменяй их в одном месте внутри <code>sendCommand</code>.
         </div>
       </div>
 
       <div class="card p-24">
-        <h3 class="section-title">Имя для веба</h3>
-        <div class="helper">Это переименование только для интерфейса. Данные на бэкенде не меняются.</div>
-        <input v-model="draftAlias" class="input" style="margin-top:14px" placeholder="Новое имя устройства" />
+        <h3 class="section-title">Имя устройства</h3>
+        <div class="helper">
+          Здесь можно задать удобное имя устройства.
+        </div>
+
+        <input
+          v-model="draftAlias"
+          class="input"
+          style="margin-top:14px"
+          placeholder="Введите имя устройства"
+        />
+
         <div class="rename-actions">
-          <button class="btn primary" type="button" @click="saveAlias">Сохранить имя</button>
-          <button class="btn" type="button" @click="resetAlias">Сбросить имя</button>
+          <button class="btn primary" type="button" @click="saveAlias">
+            Сохранить имя
+          </button>
+
+          <button class="btn" type="button" @click="resetAlias">
+            Сбросить имя
+          </button>
         </div>
       </div>
     </section>
@@ -85,6 +128,7 @@ import {
   getBackendDeviceName,
   getDeviceAlias,
   getDisplayDeviceName,
+  getPowerStateLabel,
   getTenantAccent,
   isBatteryLow,
   setDeviceAlias,
@@ -102,14 +146,60 @@ const pendingCommand = ref('')
 const deviceId = computed(() => String(route.params.deviceId || ''))
 const tenantId = computed(() => String(route.query.tenant_id || ''))
 
+function normalizeRows(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.items)) return payload.items
+  if (Array.isArray(payload?.data)) return payload.data
+  if (Array.isArray(payload?.devices)) return payload.devices
+  if (Array.isArray(payload?.results)) return payload.results
+  return []
+}
+
+function normalizeTenant(raw) {
+  return {
+    ...raw,
+    tenant_id: raw?.tenant_id ?? raw?.id ?? '',
+    name: raw?.name ?? raw?.tenant_name ?? raw?.tenant_id ?? raw?.id ?? 'Тенант',
+  }
+}
+
+function normalizeDevice(raw, tenant = null) {
+  return {
+    ...raw,
+    device_id: raw?.device_id ?? raw?.id ?? raw?.external_id ?? raw?.name,
+    tenant_id:
+      raw?.tenant_id ??
+      raw?.tenant?.tenant_id ??
+      raw?.tenant?.id ??
+      tenant?.tenant_id ??
+      '',
+    tenant_name:
+      raw?.tenant_name ??
+      raw?.tenant?.name ??
+      tenant?.name ??
+      'Тенант',
+  }
+}
+
+function devicesPath(tenantIdValue = '') {
+  const query = tenantIdValue ? `?tenant_id=${encodeURIComponent(tenantIdValue)}` : ''
+  return `/devices/${query}`
+}
+
 const backendName = computed(() => (device.value ? getBackendDeviceName(device.value) : ''))
 const displayName = computed(() => (device.value ? getDisplayDeviceName(device.value) : ''))
+
 const coordsText = computed(() => {
   if (!device.value || device.value.lat == null || device.value.lon == null) return 'n/a'
   return `${Number(device.value.lat).toFixed(5)}, ${Number(device.value.lon).toFixed(5)}`
 })
+
 const locationUpdatedAt = computed(() => {
-  const value = device.value?.location_updated_at
+  const value =
+    device.value?.location_updated_at ||
+    device.value?.updated_at ||
+    device.value?.last_seen
+
   if (!value) return 'n/a'
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString('ru-RU')
@@ -118,33 +208,50 @@ const locationUpdatedAt = computed(() => {
 async function loadDevice() {
   loading.value = true
   error.value = ''
+
   try {
-    const tenants = await api.get('/tenants')
-    const tenantList = Array.isArray(tenants) ? tenants : []
+    const tenantsResp = await api.get('/tenants')
+    const tenantList = normalizeRows(tenantsResp).map(normalizeTenant)
 
-    let targetTenantId = tenantId.value
-    if (!targetTenantId) {
-      const foundById = tenantList.find((tenant) => tenant.tenant_id === tenantId.value)
-      targetTenantId = foundById?.tenant_id || tenantList[0]?.tenant_id || ''
-    }
-
-    const requests = targetTenantId
-      ? [targetTenantId]
+    const tenantCandidates = tenantId.value
+      ? [tenantId.value]
       : tenantList.map((tenant) => tenant.tenant_id)
 
-    for (const currentTenantId of requests) {
-      const list = await api.get(`/devices?tenant_id=${currentTenantId}`)
-      const match = (Array.isArray(list) ? list : []).find((item) => item.device_id === deviceId.value)
-      if (match) {
-        const tenant = tenantList.find((item) => item.tenant_id === currentTenantId)
-        device.value = {
-          ...match,
-          tenant_id: currentTenantId,
-          tenant_name: tenant?.name || 'Текущий тенант',
+    for (const currentTenantId of tenantCandidates) {
+      try {
+        const listResp = await api.get(devicesPath(currentTenantId))
+        const list = normalizeRows(listResp)
+        const match = list.find(
+          (item) => String(item.device_id ?? item.id ?? item.external_id) === deviceId.value
+        )
+
+        if (match) {
+          const tenant = tenantList.find(
+            (item) => String(item.tenant_id) === String(currentTenantId)
+          )
+          device.value = normalizeDevice(match, tenant)
+          draftAlias.value = getDeviceAlias(device.value.device_id)
+          return
         }
-        draftAlias.value = getDeviceAlias(match.device_id)
+      } catch (e) {
+        console.warn('Ошибка загрузки устройств tenant', currentTenantId, e)
+      }
+    }
+
+    try {
+      const fallbackResp = await api.get('/devices/')
+      const fallbackList = normalizeRows(fallbackResp)
+      const match = fallbackList.find(
+        (item) => String(item.device_id ?? item.id ?? item.external_id) === deviceId.value
+      )
+
+      if (match) {
+        device.value = normalizeDevice(match)
+        draftAlias.value = getDeviceAlias(device.value.device_id)
         return
       }
+    } catch (e) {
+      console.warn('Fallback /devices/ не сработал', e)
     }
 
     error.value = 'Не удалось найти устройство'
@@ -157,14 +264,20 @@ async function loadDevice() {
 
 async function sendCommand(type) {
   if (!device.value) return
+
   pendingCommand.value = type
+
   try {
-    const query = device.value.tenant_id ? `?tenant_id=${device.value.tenant_id}` : ''
-    await api.post(`/devices/${device.value.device_id}/command${query}`, {
+    const query = device.value.tenant_id
+      ? `?tenant_id=${encodeURIComponent(device.value.tenant_id)}`
+      : ''
+
+    await api.post(`/devices/${encodeURIComponent(device.value.device_id)}/command${query}`, {
       type,
       params: {},
       retain: false,
     })
+
     toast.success('Команда отправлена')
   } catch (e) {
     toast.error(e?.body?.detail || e?.message || 'Не удалось отправить команду')
@@ -176,14 +289,14 @@ async function sendCommand(type) {
 function saveAlias() {
   if (!device.value) return
   setDeviceAlias(device.value.device_id, draftAlias.value)
-  toast.success('Имя устройства обновлено для веба')
+  toast.success('Имя устройства сохранено')
 }
 
 function resetAlias() {
   if (!device.value) return
   draftAlias.value = ''
   setDeviceAlias(device.value.device_id, '')
-  toast.info('Пользовательское имя сброшено')
+  toast.info('Имя устройства сброшено')
 }
 
 onMounted(loadDevice)
@@ -283,3 +396,4 @@ onMounted(loadDevice)
   }
 }
 </style>
+
