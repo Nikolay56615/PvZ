@@ -580,7 +580,7 @@ onMounted(async () => {
           />
 
           <button class="btn" :disabled="st.loading" @click="loadMultiFromBackend">
-            {{ st.loading ? 'Загрузка…' : 'Загрузить с бэка' }}
+            {{ st.loading ? 'Загрузка…' : 'Обновить' }}
           </button>
         </div>
       </div>
@@ -619,7 +619,7 @@ onMounted(async () => {
       <div class="mt-20" style="height:460px">
         <div v-if="!st.series.length || !st.series.some(s => s.pts?.length)" class="empty">
           Данные пока не загружены.<br />
-          Выберите устройства и нажмите “Загрузить с бэка” или импортируйте CSV.
+          Выберите устройства и нажмите “Обновить” или импортируйте CSV.
         </div>
         <canvas v-else ref="canvasEl"></canvas>
       </div>
