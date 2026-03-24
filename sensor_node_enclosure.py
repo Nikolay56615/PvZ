@@ -21,6 +21,24 @@ INNER_LENGTH = 180.0 * MM
 INNER_WIDTH = 100.0 * MM
 INNER_HEIGHT = 50.0 * MM
 
+HW390_SLOT_LENGTH = 4.2 * MM
+HW390_SLOT_WIDTH = 23.5 * MM
+HW390_SLOT_CENTER_Y = -20.0 * MM
+HW390_SLOT_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
+
+DS18B20_HOLE_DIAMETER = 9.0 * MM
+DS18B20_HOLE_CENTER_Y = 20.0 * MM
+DS18B20_HOLE_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
+
+GPS_ANTENNA_RECESS_SIZE = 30.0 * MM
+GPS_ANTENNA_RECESS_DEPTH = 1.5 * MM
+GPS_ANTENNA_RECESS_CENTER_Y = 20.0 * MM
+GPS_ANTENNA_RECESS_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
+
+LORA_ANTENNA_HOLE_DIAMETER = 10.0 * MM
+LORA_ANTENNA_HOLE_CENTER_Y = -20.0 * MM
+LORA_ANTENNA_HOLE_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
+
 
 def outer_length() -> float:
     return INNER_LENGTH + 2 * WALL
@@ -63,6 +81,8 @@ def lip_inner_radius() -> float:
 
 
 def build_base() -> Part:
+    wall_cut_depth = WALL + 2.0 * MM
+
     with BuildPart() as base:
         with BuildSketch():
             RectangleRounded(outer_length(), outer_width(), CORNER_RADIUS)
@@ -71,6 +91,50 @@ def build_base() -> Part:
         with BuildSketch(Plane.XY.offset(BOTTOM)):
             RectangleRounded(INNER_LENGTH, INNER_WIDTH, inner_corner_radius())
         extrude(amount=INNER_HEIGHT + 0.1 * MM, mode=Mode.SUBTRACT)
+
+        with BuildPart(mode=Mode.SUBTRACT):
+            with Locations((-INNER_LENGTH / 2 - WALL / 2, HW390_SLOT_CENTER_Y, HW390_SLOT_CENTER_Z)):
+                Box(
+                    wall_cut_depth,
+                    HW390_SLOT_LENGTH,
+                    HW390_SLOT_WIDTH,
+                    align=(Align.CENTER, Align.CENTER, Align.CENTER),
+                )
+
+        with BuildPart(mode=Mode.SUBTRACT):
+            with Locations(Location(
+                (-INNER_LENGTH / 2 - WALL / 2, DS18B20_HOLE_CENTER_Y, DS18B20_HOLE_CENTER_Z),
+                (0, 90, 0),
+            )):
+                Cylinder(
+                    radius=DS18B20_HOLE_DIAMETER / 2,
+                    height=wall_cut_depth,
+                    align=(Align.CENTER, Align.CENTER, Align.CENTER),
+                )
+
+        with BuildPart(mode=Mode.SUBTRACT):
+            with Locations(Location(
+                (INNER_LENGTH / 2 + WALL / 2, LORA_ANTENNA_HOLE_CENTER_Y, LORA_ANTENNA_HOLE_CENTER_Z),
+                (0, 90, 0),
+            )):
+                Cylinder(
+                    radius=LORA_ANTENNA_HOLE_DIAMETER / 2,
+                    height=wall_cut_depth,
+                    align=(Align.CENTER, Align.CENTER, Align.CENTER),
+                )
+
+        with BuildPart(mode=Mode.SUBTRACT):
+            with Locations((
+                INNER_LENGTH / 2 + WALL - GPS_ANTENNA_RECESS_DEPTH / 2,
+                GPS_ANTENNA_RECESS_CENTER_Y,
+                GPS_ANTENNA_RECESS_CENTER_Z,
+            )):
+                Box(
+                    GPS_ANTENNA_RECESS_DEPTH + 0.1 * MM,
+                    GPS_ANTENNA_RECESS_SIZE,
+                    GPS_ANTENNA_RECESS_SIZE,
+                    align=(Align.CENTER, Align.CENTER, Align.CENTER),
+                )
 
     return base.part
 
