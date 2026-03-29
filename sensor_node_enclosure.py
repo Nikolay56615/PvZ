@@ -39,6 +39,12 @@ LORA_ANTENNA_HOLE_DIAMETER = 10.0 * MM
 LORA_ANTENNA_HOLE_CENTER_Y = -20.0 * MM
 LORA_ANTENNA_HOLE_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
 
+BOSS_OUTER_DIAMETER = 7.0 * MM
+BOSS_INNER_DIAMETER = 2.5 * MM
+BOSS_HOLE_DEPTH = 20.0 * MM
+BOSS_INSET = 3.0 * MM
+BOSS_HEIGHT = INNER_HEIGHT
+
 
 def outer_length() -> float:
     return INNER_LENGTH + 2 * WALL
@@ -78,6 +84,12 @@ def lip_inner_width() -> float:
 
 def lip_inner_radius() -> float:
     return max(lip_outer_radius() - LIP_WALL, 0.5 * MM)
+
+
+def boss_corners(z_center: float) -> tuple:
+    bx = INNER_LENGTH / 2 - BOSS_INSET
+    by = INNER_WIDTH / 2 - BOSS_INSET
+    return (bx, by, z_center), (bx, -by, z_center), (-bx, by, z_center), (-bx, -by, z_center)
 
 
 def build_base() -> Part:
@@ -133,6 +145,21 @@ def build_base() -> Part:
                     GPS_ANTENNA_RECESS_DEPTH + 0.1 * MM,
                     GPS_ANTENNA_RECESS_SIZE,
                     GPS_ANTENNA_RECESS_SIZE,
+                    align=(Align.CENTER, Align.CENTER, Align.CENTER),
+                )
+
+        with Locations(*boss_corners(BOTTOM + BOSS_HEIGHT / 2)):
+            Cylinder(
+                radius=BOSS_OUTER_DIAMETER / 2,
+                height=BOSS_HEIGHT,
+                align=(Align.CENTER, Align.CENTER, Align.CENTER),
+            )
+
+        with BuildPart(mode=Mode.SUBTRACT):
+            with Locations(*boss_corners(BOTTOM + BOSS_HEIGHT + 0.5 * MM - BOSS_HOLE_DEPTH / 2)):
+                Cylinder(
+                    radius=BOSS_INNER_DIAMETER / 2,
+                    height=BOSS_HOLE_DEPTH + 1.0 * MM,
                     align=(Align.CENTER, Align.CENTER, Align.CENTER),
                 )
 
