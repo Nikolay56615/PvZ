@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useToast } from 'vue-toastification'
 import {
   Chart,
@@ -28,8 +28,11 @@ Chart.register(
 
 const toast = useToast()
 
-const chartEl = ref(null)
-let chart = null
+const temperatureChartEl = ref(null)
+const humidityChartEl = ref(null)
+
+let temperatureChart = null
+let humidityChart = null
 let refreshTimer = null
 
 const tenants = ref([])
@@ -38,7 +41,6 @@ const selectedTenant = ref('')
 const devices = ref([])
 const selectedDeviceIds = ref([])
 
-const selectedMetrics = ref(['temperature', 'humidity'])
 const maxPoints = ref(200)
 const selectedPeriod = ref('24h')
 
@@ -144,30 +146,18 @@ function periodToRange(period) {
   const now = Date.now()
 
   if (period === '24h') {
-    return {
-      start: now - 24 * 60 * 60 * 1000,
-      end: now
-    }
+    return { start: now - 24 * 60 * 60 * 1000, end: now }
   }
 
   if (period === '7d') {
-    return {
-      start: now - 7 * 24 * 60 * 60 * 1000,
-      end: now
-    }
+    return { start: now - 7 * 24 * 60 * 60 * 1000, end: now }
   }
 
   if (period === '30d') {
-    return {
-      start: now - 30 * 24 * 60 * 60 * 1000,
-      end: now
-    }
+    return { start: now - 30 * 24 * 60 * 60 * 1000, end: now }
   }
 
-  return {
-    start: null,
-    end: now
-  }
+  return { start: null, end: now }
 }
 
 function makeSeriesLabel(device) {
@@ -183,15 +173,6 @@ function toggleDevice(deviceId) {
     return
   }
   selectedDeviceIds.value = [...selectedDeviceIds.value, deviceId]
-}
-
-function toggleMetric(metric) {
-  if (selectedMetrics.value.includes(metric)) {
-    if (selectedMetrics.value.length === 1) return
-    selectedMetrics.value = selectedMetrics.value.filter(m => m !== metric)
-    return
-  }
-  selectedMetrics.value = [...selectedMetrics.value, metric]
 }
 
 async function loadTenants() {
@@ -244,14 +225,12 @@ async function fetchTemperatureSeries(deviceId, sinceIso, untilIso) {
   return resp || []
 }
 
-function buildDatasets() {
-  const datasets = []
+function makeTemperatureDatasets() {
   const deviceMap = new Map(devices.value.map(d => [d.device_id, d]))
-
-  st.temperatureSeries.forEach((series, index) => {
+  return st.temperatureSeries.map((series, index) => {
     const color = palette(index)
-    datasets.push({
-      label: `${makeSeriesLabel(deviceMap.get(series.device_id))} · температура`,
+    return {
+      label: makeSeriesLabel(deviceMap.get(series.device_id)),
       data: series.points,
       parsing: { xAxisKey: 'x', yAxisKey: 'y' },
       borderColor: color,
@@ -260,15 +239,17 @@ function buildDatasets() {
       borderWidth: 2.4,
       pointRadius: 1.8,
       pointHoverRadius: 5,
-      tension: 0.25,
-      yAxisID: 'yTemperature'
-    })
+      tension: 0.25
+    }
   })
+}
 
-  st.humiditySeries.forEach((series, index) => {
+function makeHumidityDatasets() {
+  const deviceMap = new Map(devices.value.map(d => [d.device_id, d]))
+  return st.humiditySeries.map((series, index) => {
     const color = palette(index)
-    datasets.push({
-      label: `${makeSeriesLabel(deviceMap.get(series.device_id))} · влажность`,
+    return {
+      label: makeSeriesLabel(deviceMap.get(series.device_id)),
       data: series.points,
       parsing: { xAxisKey: 'x', yAxisKey: 'y' },
       borderColor: color,
@@ -278,112 +259,100 @@ function buildDatasets() {
       borderWidth: 2.4,
       pointRadius: 1.8,
       pointHoverRadius: 5,
-      tension: 0.25,
-      yAxisID: 'yHumidity'
-    })
+      tension: 0.25
+    }
   })
-
-  return datasets
 }
 
-function destroyChart() {
-  if (chart) {
-    chart.destroy()
-    chart = null
-  }
-}
-
-function drawChart() {
-  if (!chartEl.value) return
-
-  destroyChart()
-
-  const datasets = buildDatasets()
-
-  chart = new Chart(chartEl.value.getContext('2d'), {
-    type: 'line',
-    data: { datasets },
-    options: {
-      maintainAspectRatio: false,
-      interaction: {
-        intersect: false,
-        mode: 'nearest'
-      },
-      scales: {
-        x: {
-          type: 'time',
-          time: {
-            tooltipFormat: 'dd.MM.yyyy HH:mm',
-            unit: 'hour',
-            displayFormats: {
-              minute: 'dd.MM HH:mm',
-              hour: 'dd.MM HH:mm',
-              day: 'dd.MM'
-            }
-          },
-          adapters: { date: { locale: ru } },
-          grid: { color: '#eef2f8' },
-          ticks: { color: '#3a4b66' }
-        },
-        yTemperature: {
-          type: 'linear',
-          position: 'left',
-          title: {
-            display: true,
-            text: 'Температура (°C)',
-            color: '#2b3a55'
-          },
-          grid: {
-            color: '#eef2f8'
-          },
-          ticks: {
-            color: '#3a4b66',
-            callback: value => `${value}°C`
+function commonChartOptions(yTitle, yMin = undefined, yMax = undefined, suffix = '') {
+  return {
+    maintainAspectRatio: false,
+    interaction: {
+      intersect: false,
+      mode: 'nearest'
+    },
+    scales: {
+      x: {
+        type: 'time',
+        time: {
+          tooltipFormat: 'dd.MM.yyyy HH:mm',
+          unit: 'hour',
+          displayFormats: {
+            minute: 'dd.MM HH:mm',
+            hour: 'dd.MM HH:mm',
+            day: 'dd.MM'
           }
         },
-        yHumidity: {
-          type: 'linear',
-          position: 'right',
-          min: 0,
-          max: 100,
-          title: {
-            display: true,
-            text: 'Влажность (%)',
-            color: '#2b3a55'
-          },
-          grid: {
-            drawOnChartArea: false
-          },
-          ticks: {
-            color: '#3a4b66',
-            callback: value => `${value}%`
-          }
-        }
+        adapters: { date: { locale: ru } },
+        grid: { color: '#eef2f8' },
+        ticks: { color: '#3a4b66' }
       },
-      plugins: {
-        legend: {
+      y: {
+        type: 'linear',
+        min: yMin,
+        max: yMax,
+        title: {
           display: true,
-          position: 'bottom'
+          text: yTitle,
+          color: '#2b3a55'
         },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const isTemp = ctx.dataset.yAxisID === 'yTemperature'
-              const suffix = isTemp ? '°C' : '%'
-              return `${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(1)}${suffix}`
-            },
-            afterLabel: ctx => {
-              const point = ctx.raw
-              return [
-                `Время: ${formatDateTime24(point.x)}`,
-                `Локация: ${point.location ?? '—'}`
-              ]
-            }
+        grid: { color: '#eef2f8' },
+        ticks: {
+          color: '#3a4b66',
+          callback: value => `${value}${suffix}`
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        display: true,
+        position: 'bottom'
+      },
+      tooltip: {
+        callbacks: {
+          label: ctx => `${ctx.dataset.label}: ${Number(ctx.parsed.y).toFixed(1)}${suffix}`,
+          afterLabel: ctx => {
+            const point = ctx.raw
+            return [
+              `Время: ${formatDateTime24(point.x)}`,
+              `Локация: ${point.location ?? '—'}`
+            ]
           }
         }
       }
     }
-  })
+  }
+}
+
+function destroyCharts() {
+  if (temperatureChart) {
+    temperatureChart.destroy()
+    temperatureChart = null
+  }
+  if (humidityChart) {
+    humidityChart.destroy()
+    humidityChart = null
+  }
+}
+
+function drawCharts() {
+  destroyCharts()
+
+  if (temperatureChartEl.value) {
+    temperatureChart = new Chart(temperatureChartEl.value.getContext('2d'), {
+      type: 'line',
+      data: { datasets: makeTemperatureDatasets() },
+      options: commonChartOptions('Температура (°C)', undefined, undefined, '°C')
+    })
+  }
+
+  if (humidityChartEl.value) {
+    humidityChart = new Chart(humidityChartEl.value.getContext('2d'), {
+      type: 'line',
+      data: { datasets: makeHumidityDatasets() },
+      options: commonChartOptions('Влажность (%)', 0, 100, '%')
+    })
+  }
 }
 
 async function loadCharts({ silent = false } = {}) {
@@ -403,15 +372,13 @@ async function loadCharts({ silent = false } = {}) {
   st.lastError = null
 
   try {
-    const wantTemp = selectedMetrics.value.includes('temperature')
-    const wantHum = selectedMetrics.value.includes('humidity')
     const pointLimit = clampN(maxPoints.value, 20, 5000)
 
     const results = await Promise.all(
       selectedDeviceIds.value.map(async deviceId => {
         const [tempRows, humRows] = await Promise.all([
-          wantTemp ? fetchTemperatureSeries(deviceId, sinceIso, untilIso) : Promise.resolve([]),
-          wantHum ? fetchHumiditySeries(deviceId, sinceIso, untilIso) : Promise.resolve([])
+          fetchTemperatureSeries(deviceId, sinceIso, untilIso),
+          fetchHumiditySeries(deviceId, sinceIso, untilIso)
         ])
 
         const temperaturePoints = downsamplePoints(buildMetricPoints(tempRows, 'temperature'), pointLimit)
@@ -451,14 +418,17 @@ async function loadCharts({ silent = false } = {}) {
       st.humiditySeries.reduce((sum, item) => sum + item.points.length, 0)
 
     await nextTick()
-    drawChart()
+    drawCharts()
 
     if (!st.totalAfter && !silent) {
       toast.warning('Нет данных за выбранный период')
     }
   } catch (e) {
-    st.lastError = e?.message || String(e)
-    if (!silent) toast.error(`Ошибка загрузки данных: ${st.lastError}`)
+    st.lastError = e?.body?.detail || e?.message || String(e)
+    if (!silent) {
+      const msg = typeof st.lastError === 'string' ? st.lastError : 'Ошибка загрузки данных'
+      toast.error(msg)
+    }
   } finally {
     st.loading = false
   }
@@ -480,13 +450,6 @@ function stopAutoRefresh() {
   }
 }
 
-const periodLabel = computed(() => {
-  if (selectedPeriod.value === '24h') return '24 часа'
-  if (selectedPeriod.value === '7d') return '7 дней'
-  if (selectedPeriod.value === '30d') return '30 дней'
-  return 'Весь период'
-})
-
 watch(
   () => selectedTenant.value,
   async () => {
@@ -505,7 +468,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   stopAutoRefresh()
-  destroyChart()
+  destroyCharts()
 })
 </script>
 
@@ -547,69 +510,47 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="layout-grid">
-      <div class="left-column">
-        <div class="card panel-card">
-          <div class="panel-title">Устройства</div>
+      <div class="card devices-card">
+        <div class="panel-title">Устройства</div>
 
-          <div class="device-list">
-            <button
-              v-for="device in devices"
-              :key="device.device_id"
-              type="button"
-              class="device-item"
-              :class="{ active: selectedDeviceIds.includes(device.device_id) }"
-              @click="toggleDevice(device.device_id)"
-            >
-              <div class="device-main">{{ device.external_id ?? device.device_id }}</div>
-              <div class="device-sub">{{ device.external_id ?? device.device_id }}</div>
-            </button>
-          </div>
-        </div>
-
-        <div class="card panel-card metrics-card">
-          <div class="panel-title">Датчики</div>
-
-          <label class="metric-item" @click.prevent="toggleMetric('temperature')">
-            <input
-              type="checkbox"
-              :checked="selectedMetrics.includes('temperature')"
-              @change.prevent
-            />
-            <span>Температура</span>
-          </label>
-
-          <label class="metric-item" @click.prevent="toggleMetric('humidity')">
-            <input
-              type="checkbox"
-              :checked="selectedMetrics.includes('humidity')"
-              @change.prevent
-            />
-            <span>Влажность</span>
-          </label>
-
-          <div class="helper metric-helper">Выбрано: {{ selectedMetrics.length }}</div>
+        <div class="device-list">
+          <button
+            v-for="device in devices"
+            :key="device.device_id"
+            type="button"
+            class="device-item"
+            :class="{ active: selectedDeviceIds.includes(device.device_id) }"
+            @click="toggleDevice(device.device_id)"
+          >
+            <div class="device-main">{{ device.external_id ?? device.device_id }}</div>
+            <div class="device-sub">{{ device.external_id ?? device.device_id }}</div>
+          </button>
         </div>
       </div>
 
-      <div class="card graph-card">
-        <div class="graph-head">
-          <div>
-            <div class="panel-title">График</div>
-            <div class="helper">
-              Один лист, две оси: слева температура, справа влажность. Период: {{ periodLabel }}.
+      <div class="graphs-column">
+        <div class="card graph-card">
+          <div class="panel-title">Температура</div>
+          <div class="graph-body">
+            <div v-if="!st.temperatureSeries.length" class="empty">
+              Нет данных по температуре
             </div>
+            <canvas v-else ref="temperatureChartEl"></canvas>
           </div>
         </div>
 
-        <div class="graph-body">
-          <div v-if="!st.totalAfter" class="empty">
-            Данные пока не загружены или отсутствуют за выбранный период.
+        <div class="card graph-card">
+          <div class="panel-title">Влажность</div>
+          <div class="graph-body">
+            <div v-if="!st.humiditySeries.length" class="empty">
+              Нет данных по влажности
+            </div>
+            <canvas v-else ref="humidityChartEl"></canvas>
           </div>
-          <canvas v-else ref="chartEl"></canvas>
         </div>
 
-        <div v-if="st.lastError" class="graph-error">
-          {{ st.lastError }}
+        <div v-if="st.lastError" class="graph-error card">
+          {{ typeof st.lastError === 'string' ? st.lastError : 'Ошибка загрузки данных' }}
         </div>
       </div>
     </div>
@@ -625,7 +566,7 @@ onBeforeUnmount(() => {
           <div class="stat-v">{{ st.totalBefore }}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-k">Точек на графике</div>
+          <div class="stat-k">Точек на графиках</div>
           <div class="stat-v">{{ st.totalAfter }}</div>
         </div>
         <div class="stat-box">
@@ -687,26 +628,36 @@ onBeforeUnmount(() => {
   align-items: start;
 }
 
-.left-column {
-  display: grid;
-  gap: 14px;
-}
-
-.panel-card,
+.devices-card,
 .graph-card,
-.stats-card {
+.stats-card,
+.graph-error {
   background: #ffffff;
   border: 1px solid rgba(148, 163, 184, 0.18);
   box-shadow: 0 20px 40px rgba(15, 23, 42, 0.06);
   border-radius: 24px;
 }
 
-.panel-card {
+.devices-card {
   padding: 12px;
+  width: 250px;
+}
+
+.graphs-column {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
 }
 
 .graph-card {
   padding: 12px;
+  min-width: 0;
+}
+
+.graph-error {
+  padding: 12px 14px;
+  color: #dc2626;
+  font-size: 14px;
 }
 
 .stats-card {
@@ -724,15 +675,16 @@ onBeforeUnmount(() => {
 .device-list {
   border: 1px solid #d7deea;
   border-radius: 14px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: #fff;
-  min-height: 230px;
+  height: 640px;
 }
 
 .device-item {
   display: block;
   width: 100%;
-  padding: 12px 12px;
+  padding: 10px 12px;
   text-align: left;
   border: 0;
   border-bottom: 1px solid #eef2f8;
@@ -749,45 +701,19 @@ onBeforeUnmount(() => {
 }
 
 .device-main {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: #0f2147;
 }
 
 .device-sub {
-  margin-top: 3px;
-  font-size: 13px;
+  margin-top: 2px;
+  font-size: 12px;
   color: #6b7280;
 }
 
-.metrics-card {
-  padding-bottom: 14px;
-}
-
-.metric-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-  cursor: pointer;
-  user-select: none;
-  color: #0f2147;
-}
-
-.metric-helper {
-  margin-top: 10px;
-}
-
-.graph-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
 .graph-body {
-  height: 420px;
+  height: 300px;
 }
 
 .empty {
@@ -796,12 +722,6 @@ onBeforeUnmount(() => {
   place-items: center;
   color: #6b7280;
   text-align: center;
-}
-
-.graph-error {
-  margin-top: 10px;
-  color: #dc2626;
-  font-size: 14px;
 }
 
 .stats-grid {
@@ -834,22 +754,22 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
-  .left-column {
-    grid-template-columns: 1fr 1fr;
+  .devices-card {
+    width: 100%;
+  }
+
+  .device-list {
+    height: 220px;
   }
 }
 
 @media (max-width: 760px) {
-  .left-column {
-    grid-template-columns: 1fr;
-  }
-
   .stats-grid {
     grid-template-columns: 1fr 1fr;
   }
 
   .graph-body {
-    height: 340px;
+    height: 260px;
   }
 }
 </style>
