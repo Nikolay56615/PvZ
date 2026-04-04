@@ -16,9 +16,35 @@ const loading = ref(false)
 const validEmail = computed(() =>
   /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email.value.trim())
 )
+
 const validPassword = computed(() =>
   /^[A-Za-z0-9!@#$%^&*._-]+$/.test(password.value)
 )
+
+function extractErrorMessage(e, fallback) {
+  const raw =
+    e?.body?.detail ??
+    e?.response?.data?.detail ??
+    e?.data?.detail ??
+    e?.message ??
+    fallback
+
+  if (typeof raw === 'string') return raw
+
+  if (Array.isArray(raw)) {
+    const first = raw[0]
+    if (typeof first === 'string') return first
+    if (first?.msg) return first.msg
+    return fallback
+  }
+
+  if (raw && typeof raw === 'object') {
+    if (typeof raw.detail === 'string') return raw.detail
+    if (typeof raw.msg === 'string') return raw.msg
+  }
+
+  return fallback
+}
 
 async function onSubmit() {
   if (!email.value.trim() || !password.value || !password2.value) {
@@ -47,9 +73,15 @@ async function onSubmit() {
   }
 
   loading.value = true
+
   try {
+    const trimmedEmail = email.value.trim()
+
     const res = await api.post('/auth/register', {
-      email: email.value.trim(),
+      user: {
+        email: trimmedEmail,
+        username: trimmedEmail,
+      },
       password: password.value,
     })
 
@@ -68,7 +100,9 @@ async function onSubmit() {
     toast.success('Аккаунт создан. Теперь войдите.')
     router.push('/login')
   } catch (e) {
-    toast.error(e?.body?.detail || e?.message || 'Не удалось создать аккаунт. Попробуйте позже.')
+    toast.error(
+      extractErrorMessage(e, 'Не удалось создать аккаунт. Попробуйте позже.')
+    )
   } finally {
     loading.value = false
   }
@@ -263,3 +297,4 @@ async function onSubmit() {
   }
 }
 </style>
+
