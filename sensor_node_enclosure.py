@@ -44,6 +44,9 @@ BOSS_INNER_DIAMETER = 2.5 * MM
 BOSS_HOLE_DEPTH = 20.0 * MM
 BOSS_INSET = 3.0 * MM
 BOSS_HEIGHT = INNER_HEIGHT
+LID_SCREW_CLEARANCE = 3.4 * MM
+BOSS_LID_CLEARANCE = 0.15 * MM
+BOSS_LID_POCKET_DEPTH = 1.0 * MM
 
 
 def outer_length() -> float:
@@ -90,6 +93,10 @@ def boss_corners(z_center: float) -> tuple:
     bx = INNER_LENGTH / 2 - BOSS_INSET
     by = INNER_WIDTH / 2 - BOSS_INSET
     return (bx, by, z_center), (bx, -by, z_center), (-bx, by, z_center), (-bx, -by, z_center)
+
+
+def boss_relief_radius() -> float:
+    return BOSS_OUTER_DIAMETER / 2 + LIP_CLEARANCE
 
 
 def build_base() -> Part:
@@ -167,6 +174,8 @@ def build_base() -> Part:
 
 
 def build_lid() -> Part:
+    relief_r = boss_relief_radius()
+
     with BuildPart() as lid:
         with BuildSketch():
             RectangleRounded(outer_length(), outer_width(), CORNER_RADIUS)
@@ -176,6 +185,30 @@ def build_lid() -> Part:
             RectangleRounded(lip_outer_length(), lip_outer_width(), lip_outer_radius())
             RectangleRounded(lip_inner_length(), lip_inner_width(), lip_inner_radius(), mode=Mode.SUBTRACT)
         extrude(amount=LIP_DEPTH)
+
+        with BuildPart(mode=Mode.SUBTRACT):
+            with Locations(*boss_corners(-LIP_DEPTH / 2)):
+                Cylinder(
+                    radius=relief_r,
+                    height=LIP_DEPTH + 1.0 * MM,
+                    align=(Align.CENTER, Align.CENTER, Align.CENTER),
+                )
+
+        with BuildPart(mode=Mode.SUBTRACT):
+            with Locations(*boss_corners(BOSS_LID_POCKET_DEPTH / 2)):
+                Cylinder(
+                    radius=BOSS_OUTER_DIAMETER / 2 + BOSS_LID_CLEARANCE,
+                    height=BOSS_LID_POCKET_DEPTH,
+                    align=(Align.CENTER, Align.CENTER, Align.CENTER),
+                )
+
+        with BuildPart(mode=Mode.SUBTRACT):
+            with Locations(*boss_corners((LID_TOP + BOSS_LID_POCKET_DEPTH) / 2)):
+                Cylinder(
+                    radius=LID_SCREW_CLEARANCE / 2,
+                    height=LID_TOP + BOSS_LID_POCKET_DEPTH + 1.0 * MM,
+                    align=(Align.CENTER, Align.CENTER, Align.CENTER),
+                )
 
     return lid.part
 
