@@ -3,10 +3,12 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { useToast } from 'vue-toastification'
+import { useAuth } from '../auth'
 import { isAllowedEmailDomain, getEmailDomainError } from '../utils/emailDomain'
 
 const router = useRouter()
 const toast = useToast()
+const { login } = useAuth()
 
 const email = ref('')
 const password = ref('')
@@ -85,20 +87,15 @@ async function onSubmit() {
       password: password.value,
     })
 
-    if (res?.access_token) {
-      localStorage.setItem('pvz_token', res.access_token)
-
-      if (res?.user) {
-        localStorage.setItem('pvz_user', JSON.stringify(res.user))
-      }
-
-      toast.success('Аккаунт создан и вы вошли.')
-      router.push('/')
-      return
+    const token = res?.access_token || res?.token || ''
+    if (!token) {
+      throw new Error('Сервер не вернул токен авторизации')
     }
 
-    toast.success('Аккаунт создан. Теперь войдите.')
-    router.push('/login')
+    login(token, trimmedEmail)
+
+    toast.success('Аккаунт создан, вход выполнен')
+    router.replace('/')
   } catch (e) {
     toast.error(
       extractErrorMessage(e, 'Не удалось создать аккаунт. Попробуйте позже.')
@@ -297,4 +294,3 @@ async function onSubmit() {
   }
 }
 </style>
-
