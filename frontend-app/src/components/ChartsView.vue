@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useToast } from 'vue-toastification'
+import Papa from 'papaparse'
 import {
   Chart,
   LineController,
@@ -42,16 +43,22 @@ const devices = ref([])
 const selectedDeviceIds = ref([])
 
 const selectedPeriod = ref('24h')
+const dataSource = ref('backend') // backend | csv
 
 const st = reactive({
   start: null,
   end: null,
   loading: false,
   lastError: null,
+
+  rawTemperatureSeries: [],
+  rawHumiditySeries: [],
+
   temperatureSeries: [],
   humiditySeries: [],
-  temperaturePointsCount: 0,
-  humidityPointsCount: 0
+
+  totalBefore: 0,
+  totalAfter: 0
 })
 
 const startLocal = computed({
@@ -126,7 +133,7 @@ function buildMetricPoints(rows, metricName) {
   const points = []
 
   for (const row of rows || []) {
-    const x = parseDate(row.ts || row.sent_ts || row.timestamp || row.time)
+    const x = parseDate(row.ts || row.sent_ts || row.timestamp || row.time || row.datetime || row.date)
     const y = Number(row[metricName])
 
     if (x == null || !Number.isFinite(y)) continue
@@ -140,6 +147,25 @@ function buildMetricPoints(rows, metricName) {
 
   points.sort((a, b) => a.x - b.x)
   return points
+}
+
+function detectCols(fields) {
+  const lower = fields.map(x => x.toLowerCase())
+  const pick = (...names) => {
+    for (const n of names) {
+      const idx = lower.indexOf(n)
+      if (idx !== -1) return fields[idx]
+    }
+    return null
+  }
+
+  return {
+    time: pick('timestamp', 'time', 'datetime', 'date', 'ts', 'sent_ts'),
+    temperature: pick('temperature', 'temp', 'air_temperature', 'soil_temperature'),
+    humidity: pick('humidity', 'humidity_percent', 'soil_humidity', 'moisture'),
+    device: pick('device_id', 'device', 'external_id'),
+    location: pick('location', 'place')
+  }
 }
 
 function periodToRange(period) {
@@ -180,6 +206,41 @@ function toggleDevice(deviceId) {
     return
   }
   selectedDeviceIds.value = [...selectedDeviceIds.value, deviceId]
+}
+
+function applyLocalFilter() {
+  const start = st.start
+  const end = st.end
+
+  st.totalBefore =
+    st.rawTemperatureSeries.reduce((sum, item) => sum + item.points.length, 0) +
+    st.rawHumiditySeries.reduce((sum, item) => sum + item.points.length, 0)
+
+  st.temperatureSeries = st.rawTemperatureSeries
+    .map(series => ({
+      device_id: series.device_id,
+      points: series.points.filter(p => {
+        const afterStart = start == null || p.x >= start
+        const beforeEnd = end == null || p.x <= end
+        return afterStart && beforeEnd
+      })
+    }))
+    .filter(series => series.points.length)
+
+  st.humiditySeries = st.rawHumiditySeries
+    .map(series => ({
+      device_id: series.device_id,
+      points: series.points.filter(p => {
+        const afterStart = start == null || p.x >= start
+        const beforeEnd = end == null || p.x <= end
+        return afterStart && beforeEnd
+      })
+    }))
+    .filter(series => series.points.length)
+
+  st.totalAfter =
+    st.temperatureSeries.reduce((sum, item) => sum + item.points.length, 0) +
+    st.humiditySeries.reduce((sum, item) => sum + item.points.length, 0)
 }
 
 async function loadTenants() {
@@ -237,7 +298,7 @@ function makeTemperatureDatasets() {
   return st.temperatureSeries.map((series, index) => {
     const color = palette(index)
     return {
-      label: makeSeriesLabel(deviceMap.get(series.device_id)),
+      label: makeSeriesLabel(deviceMap.get(series.device_id) || { device_id: series.device_id }),
       data: series.points,
       parsing: { xAxisKey: 'x', yAxisKey: 'y' },
       borderColor: color,
@@ -256,7 +317,7 @@ function makeHumidityDatasets() {
   return st.humiditySeries.map((series, index) => {
     const color = palette(index)
     return {
-      label: makeSeriesLabel(deviceMap.get(series.device_id)),
+      label: makeSeriesLabel(deviceMap.get(series.device_id) || { device_id: series.device_id }),
       data: series.points,
       parsing: { xAxisKey: 'x', yAxisKey: 'y' },
       borderColor: color,
@@ -370,7 +431,7 @@ function extractErrorText(error) {
   return 'Ошибка загрузки данных'
 }
 
-async function loadCharts({ silent = false } = {}) {
+async function loadChartsFromBackend({ silent = false } = {}) {
   if (!selectedDeviceIds.value.length) {
     if (!silent) toast.error('Выберите хотя бы одно устройство')
     return
@@ -381,6 +442,7 @@ async function loadCharts({ silent = false } = {}) {
 
   st.loading = true
   st.lastError = null
+  dataSource.value = 'backend'
 
   try {
     const results = await Promise.all(
@@ -390,38 +452,34 @@ async function loadCharts({ silent = false } = {}) {
           fetchHumiditySeries(deviceId, sinceIso, untilIso)
         ])
 
-        const temperaturePoints = buildMetricPoints(tempRows, 'temperature')
-        const humidityPoints = buildMetricPoints(humRows, 'humidity')
-
         return {
           device_id: deviceId,
-          temperaturePoints,
-          humidityPoints
+          temperaturePoints: buildMetricPoints(tempRows, 'temperature'),
+          humidityPoints: buildMetricPoints(humRows, 'humidity')
         }
       })
     )
 
-    st.temperatureSeries = results
+    st.rawTemperatureSeries = results
       .filter(r => r.temperaturePoints.length)
       .map(r => ({
         device_id: r.device_id,
         points: r.temperaturePoints
       }))
 
-    st.humiditySeries = results
+    st.rawHumiditySeries = results
       .filter(r => r.humidityPoints.length)
       .map(r => ({
         device_id: r.device_id,
         points: r.humidityPoints
       }))
 
-    st.temperaturePointsCount = st.temperatureSeries.reduce((sum, item) => sum + item.points.length, 0)
-    st.humidityPointsCount = st.humiditySeries.reduce((sum, item) => sum + item.points.length, 0)
+    applyLocalFilter()
 
     await nextTick()
     drawCharts()
 
-    if (!st.temperaturePointsCount && !st.humidityPointsCount && !silent) {
+    if (!st.totalAfter && !silent) {
       toast.warning('Нет данных за выбранный период')
     }
   } catch (e) {
@@ -436,11 +494,124 @@ async function loadCharts({ silent = false } = {}) {
   }
 }
 
+async function loadCsv(file) {
+  if (!file) return
+
+  st.loading = true
+  st.lastError = null
+
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    dynamicTyping: true,
+    complete: async (res) => {
+      try {
+        const rows = res?.data || []
+        if (!rows.length) {
+          toast.error('CSV пустой')
+          return
+        }
+
+        const fields = Object.keys(rows[0] || {})
+        const cols = detectCols(fields)
+
+        if (!cols.time) {
+          toast.error('В CSV не найдена колонка времени')
+          return
+        }
+
+        dataSource.value = 'csv'
+
+        const grouped = new Map()
+
+        for (const row of rows) {
+          const rawDeviceId = cols.device ? row[cols.device] : 'csv'
+          const deviceId = String(rawDeviceId ?? 'csv').trim() || 'csv'
+
+          if (!grouped.has(deviceId)) {
+            grouped.set(deviceId, [])
+          }
+
+          grouped.get(deviceId).push({
+            timestamp: cols.time ? row[cols.time] : null,
+            temperature: cols.temperature ? row[cols.temperature] : null,
+            humidity: cols.humidity ? row[cols.humidity] : null,
+            location: cols.location ? row[cols.location] : null
+          })
+        }
+
+        const deviceIds = Array.from(grouped.keys())
+        selectedDeviceIds.value = deviceIds
+
+        if (!devices.value.length) {
+          devices.value = deviceIds.map(id => ({
+            device_id: id,
+            external_id: id,
+            model: ''
+          }))
+        } else {
+          const knownIds = new Set(devices.value.map(d => d.device_id))
+          for (const id of deviceIds) {
+            if (!knownIds.has(id)) {
+              devices.value.push({
+                device_id: id,
+                external_id: id,
+                model: ''
+              })
+            }
+          }
+        }
+
+        st.rawTemperatureSeries = deviceIds
+          .map(deviceId => ({
+            device_id: deviceId,
+            points: buildMetricPoints(grouped.get(deviceId), 'temperature')
+          }))
+          .filter(item => item.points.length)
+
+        st.rawHumiditySeries = deviceIds
+          .map(deviceId => ({
+            device_id: deviceId,
+            points: buildMetricPoints(grouped.get(deviceId), 'humidity')
+          }))
+          .filter(item => item.points.length)
+
+        const allPoints = [
+          ...st.rawTemperatureSeries.flatMap(s => s.points),
+          ...st.rawHumiditySeries.flatMap(s => s.points)
+        ].sort((a, b) => a.x - b.x)
+
+        if (allPoints.length && (st.start == null || st.end == null)) {
+          st.start = allPoints[0].x
+          st.end = allPoints[allPoints.length - 1].x
+        }
+
+        applyLocalFilter()
+
+        await nextTick()
+        drawCharts()
+
+        toast.success('CSV загружен')
+      } catch (e) {
+        st.lastError = e?.message || 'Ошибка обработки CSV'
+        toast.error(st.lastError)
+      } finally {
+        st.loading = false
+      }
+    },
+    error: (err) => {
+      st.loading = false
+      st.lastError = err?.message || 'Ошибка чтения CSV'
+      toast.error(st.lastError)
+    }
+  })
+}
+
 function startAutoRefresh() {
   stopAutoRefresh()
   refreshTimer = setInterval(() => {
-    if (!st.loading) {
-      loadCharts({ silent: true })
+    if (!st.loading && dataSource.value === 'backend') {
+      loadChartsFromBackend({ silent: true })
     }
   }, 30000)
 }
@@ -455,9 +626,19 @@ function stopAutoRefresh() {
 watch(
   () => selectedTenant.value,
   async () => {
+    if (dataSource.value === 'csv') return
     selectedDeviceIds.value = []
     await loadDevices()
-    await loadCharts({ silent: true })
+    await loadChartsFromBackend({ silent: true })
+  }
+)
+
+watch(
+  () => [st.start, st.end],
+  async () => {
+    applyLocalFilter()
+    await nextTick()
+    drawCharts()
   }
 )
 
@@ -465,7 +646,7 @@ onMounted(async () => {
   await loadTenants()
   await loadDevices()
   applyPreset('24h')
-  await loadCharts({ silent: true })
+  await loadChartsFromBackend({ silent: true })
   startAutoRefresh()
 })
 
@@ -484,7 +665,7 @@ onBeforeUnmount(() => {
     <div class="top-controls">
       <div class="control-field">
         <div class="control-label">Тенант</div>
-        <select class="input select" v-model="selectedTenant">
+        <select class="input select" v-model="selectedTenant" :disabled="dataSource === 'csv'">
           <option value="" disabled>Выберите тенант</option>
           <option v-for="t in tenants" :key="t.tenant_id" :value="t.tenant_id">
             {{ t.name ?? t.tenant_name ?? t.tenant_id }}
@@ -512,7 +693,17 @@ onBeforeUnmount(() => {
         <input class="input" type="datetime-local" v-model="endLocal" />
       </div>
 
-      <button class="btn primary refresh-btn" :disabled="st.loading" @click="loadCharts()">
+      <div class="control-field file-field">
+        <div class="control-label">CSV</div>
+        <input
+          class="input file-input"
+          type="file"
+          accept=".csv,text/csv"
+          @change="e => loadCsv(e.target.files?.[0])"
+        />
+      </div>
+
+      <button class="btn primary refresh-btn" :disabled="st.loading" @click="loadChartsFromBackend()">
         {{ st.loading ? 'Обновление...' : 'Обновить' }}
       </button>
     </div>
@@ -573,12 +764,12 @@ onBeforeUnmount(() => {
           <div class="stat-v">{{ selectedDeviceIds.length }}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-k">Точек температуры</div>
-          <div class="stat-v">{{ st.temperaturePointsCount }}</div>
+          <div class="stat-k">Точек до фильтра</div>
+          <div class="stat-v">{{ st.totalBefore }}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-k">Точек влажности</div>
-          <div class="stat-v">{{ st.humidityPointsCount }}</div>
+          <div class="stat-k">Точек после фильтра</div>
+          <div class="stat-v">{{ st.totalAfter }}</div>
         </div>
       </div>
     </div>
@@ -618,10 +809,18 @@ onBeforeUnmount(() => {
   min-width: 210px;
 }
 
+.file-field {
+  min-width: 220px;
+}
+
 .control-label {
   margin-bottom: 6px;
   font-size: 14px;
   color: #4b5b7a;
+}
+
+.file-input {
+  padding: 10px 12px;
 }
 
 .refresh-btn {
@@ -756,8 +955,12 @@ onBeforeUnmount(() => {
   color: #0f2147;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1300px) {
   .datetime-field {
+    min-width: 180px;
+  }
+
+  .file-field {
     min-width: 180px;
   }
 }
@@ -785,7 +988,8 @@ onBeforeUnmount(() => {
     height: 260px;
   }
 
-  .datetime-field {
+  .datetime-field,
+  .file-field {
     min-width: 100%;
   }
 }
