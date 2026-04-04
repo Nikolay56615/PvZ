@@ -3,10 +3,12 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { useToast } from 'vue-toastification'
+import { useAuth } from '../auth'
 import { isAllowedEmailDomain, getEmailDomainError } from '../utils/emailDomain'
 
 const router = useRouter()
 const toast = useToast()
+const { login } = useAuth()
 
 const loginValue = ref('')
 const password = ref('')
@@ -73,24 +75,19 @@ async function onSubmit() {
     const isEmail = trimmed.includes('@')
 
     const res = await api.post('/auth/login', {
-      user: isEmail
-        ? { email: trimmed }
-        : { username: trimmed },
+      user: isEmail ? { email: trimmed } : { username: trimmed },
       password: password.value,
     })
 
-    if (res?.access_token) {
-      localStorage.setItem('pvz_token', res.access_token)
-    } else if (res?.token) {
-      localStorage.setItem('pvz_token', res.token)
+    const token = res?.access_token || res?.token || ''
+    if (!token) {
+      throw new Error('Сервер не вернул токен авторизации')
     }
 
-    if (res?.user) {
-      localStorage.setItem('pvz_user', JSON.stringify(res.user))
-    }
+    login(token, isEmail ? trimmed : '')
 
     toast.success(`Добро пожаловать, ${trimmed}!`)
-    router.push('/')
+    router.replace('/')
   } catch (e) {
     toast.error(
       extractErrorMessage(e, 'Не удалось войти. Проверьте данные или попробуйте позже.')
