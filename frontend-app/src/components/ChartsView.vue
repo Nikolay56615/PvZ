@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useToast } from 'vue-toastification'
 import {
   Chart,
@@ -41,7 +41,6 @@ const selectedTenant = ref('')
 const devices = ref([])
 const selectedDeviceIds = ref([])
 
-const maxPoints = ref(200)
 const selectedPeriod = ref('24h')
 
 const st = reactive({
@@ -49,11 +48,32 @@ const st = reactive({
   end: null,
   loading: false,
   lastError: null,
-  totalBefore: 0,
-  totalAfter: 0,
   temperatureSeries: [],
-  humiditySeries: []
+  humiditySeries: [],
+  temperaturePointsCount: 0,
+  humidityPointsCount: 0
 })
+
+const startLocal = computed({
+  get: () => toLocalInput(st.start),
+  set: (value) => {
+    st.start = value ? new Date(value).getTime() : null
+  }
+})
+
+const endLocal = computed({
+  get: () => toLocalInput(st.end),
+  set: (value) => {
+    st.end = value ? new Date(value).getTime() : null
+  }
+})
+
+function toLocalInput(ms) {
+  if (ms == null) return ''
+  const d = new Date(ms)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 function parseDate(v) {
   if (v == null || v === '') return null
@@ -88,12 +108,6 @@ function formatDateTime24(ms) {
   })
 }
 
-function clampN(v, min, max) {
-  const n = Number(v)
-  if (!Number.isFinite(n)) return min
-  return Math.max(min, Math.min(max, n))
-}
-
 function palette(i) {
   const colors = [
     '#2563eb',
@@ -106,20 +120,6 @@ function palette(i) {
     '#4b5563'
   ]
   return colors[i % colors.length]
-}
-
-function downsamplePoints(points, limit) {
-  if (!Array.isArray(points) || points.length <= limit) return points
-  const step = Math.ceil(points.length / limit)
-  const result = []
-  for (let i = 0; i < points.length; i += step) {
-    result.push(points[i])
-  }
-  const last = points[points.length - 1]
-  if (result[result.length - 1] !== last) {
-    result.push(last)
-  }
-  return result
 }
 
 function buildMetricPoints(rows, metricName) {
@@ -158,6 +158,13 @@ function periodToRange(period) {
   }
 
   return { start: null, end: now }
+}
+
+function applyPreset(period) {
+  selectedPeriod.value = period
+  const range = periodToRange(period)
+  st.start = range.start
+  st.end = range.end
 }
 
 function makeSeriesLabel(device) {
@@ -355,15 +362,19 @@ function drawCharts() {
   }
 }
 
+function extractErrorText(error) {
+  const raw = error?.body?.detail ?? error?.message ?? error
+
+  if (typeof raw === 'string') return raw
+  if (Array.isArray(raw) && raw[0]?.msg) return raw[0].msg
+  return 'Ошибка загрузки данных'
+}
+
 async function loadCharts({ silent = false } = {}) {
   if (!selectedDeviceIds.value.length) {
     if (!silent) toast.error('Выберите хотя бы одно устройство')
     return
   }
-
-  const range = periodToRange(selectedPeriod.value)
-  st.start = range.start
-  st.end = range.end
 
   const sinceIso = isoOrNull(st.start) || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const untilIso = isoOrNull(st.end) || new Date().toISOString()
@@ -372,8 +383,6 @@ async function loadCharts({ silent = false } = {}) {
   st.lastError = null
 
   try {
-    const pointLimit = clampN(maxPoints.value, 20, 5000)
-
     const results = await Promise.all(
       selectedDeviceIds.value.map(async deviceId => {
         const [tempRows, humRows] = await Promise.all([
@@ -381,15 +390,13 @@ async function loadCharts({ silent = false } = {}) {
           fetchHumiditySeries(deviceId, sinceIso, untilIso)
         ])
 
-        const temperaturePoints = downsamplePoints(buildMetricPoints(tempRows, 'temperature'), pointLimit)
-        const humidityPoints = downsamplePoints(buildMetricPoints(humRows, 'humidity'), pointLimit)
+        const temperaturePoints = buildMetricPoints(tempRows, 'temperature')
+        const humidityPoints = buildMetricPoints(humRows, 'humidity')
 
         return {
           device_id: deviceId,
           temperaturePoints,
-          humidityPoints,
-          rawTemperatureCount: tempRows?.length || 0,
-          rawHumidityCount: humRows?.length || 0
+          humidityPoints
         }
       })
     )
@@ -408,26 +415,21 @@ async function loadCharts({ silent = false } = {}) {
         points: r.humidityPoints
       }))
 
-    st.totalBefore = results.reduce(
-      (sum, item) => sum + item.rawTemperatureCount + item.rawHumidityCount,
-      0
-    )
-
-    st.totalAfter =
-      st.temperatureSeries.reduce((sum, item) => sum + item.points.length, 0) +
-      st.humiditySeries.reduce((sum, item) => sum + item.points.length, 0)
+    st.temperaturePointsCount = st.temperatureSeries.reduce((sum, item) => sum + item.points.length, 0)
+    st.humidityPointsCount = st.humiditySeries.reduce((sum, item) => sum + item.points.length, 0)
 
     await nextTick()
     drawCharts()
 
-    if (!st.totalAfter && !silent) {
+    if (!st.temperaturePointsCount && !st.humidityPointsCount && !silent) {
       toast.warning('Нет данных за выбранный период')
     }
   } catch (e) {
-    st.lastError = e?.body?.detail || e?.message || String(e)
-    if (!silent) {
-      const msg = typeof st.lastError === 'string' ? st.lastError : 'Ошибка загрузки данных'
-      toast.error(msg)
+    const message = extractErrorText(e)
+    st.lastError = message
+
+    if (!silent && !String(message).includes('Not Found')) {
+      toast.error(message)
     }
   } finally {
     st.loading = false
@@ -462,6 +464,7 @@ watch(
 onMounted(async () => {
   await loadTenants()
   await loadDevices()
+  applyPreset('24h')
   await loadCharts({ silent: true })
   startAutoRefresh()
 })
@@ -491,7 +494,7 @@ onBeforeUnmount(() => {
 
       <div class="control-field">
         <div class="control-label">Период</div>
-        <select class="input select" v-model="selectedPeriod">
+        <select class="input select" v-model="selectedPeriod" @change="applyPreset(selectedPeriod)">
           <option value="24h">24 часа</option>
           <option value="7d">7 дней</option>
           <option value="30d">30 дней</option>
@@ -499,9 +502,14 @@ onBeforeUnmount(() => {
         </select>
       </div>
 
-      <div class="control-field control-points">
-        <div class="control-label">Точки</div>
-        <input class="input" type="number" min="20" max="5000" v-model="maxPoints" />
+      <div class="control-field datetime-field">
+        <div class="control-label">Начало</div>
+        <input class="input" type="datetime-local" v-model="startLocal" />
+      </div>
+
+      <div class="control-field datetime-field">
+        <div class="control-label">Конец</div>
+        <input class="input" type="datetime-local" v-model="endLocal" />
       </div>
 
       <button class="btn primary refresh-btn" :disabled="st.loading" @click="loadCharts()">
@@ -549,8 +557,11 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div v-if="st.lastError" class="graph-error card">
-          {{ typeof st.lastError === 'string' ? st.lastError : 'Ошибка загрузки данных' }}
+        <div
+          v-if="st.lastError && !String(st.lastError).includes('Not Found')"
+          class="graph-error card"
+        >
+          {{ st.lastError }}
         </div>
       </div>
     </div>
@@ -562,16 +573,12 @@ onBeforeUnmount(() => {
           <div class="stat-v">{{ selectedDeviceIds.length }}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-k">Точек до сокращения</div>
-          <div class="stat-v">{{ st.totalBefore }}</div>
+          <div class="stat-k">Точек температуры</div>
+          <div class="stat-v">{{ st.temperaturePointsCount }}</div>
         </div>
         <div class="stat-box">
-          <div class="stat-k">Точек на графиках</div>
-          <div class="stat-v">{{ st.totalAfter }}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-k">Автообновление</div>
-          <div class="stat-v">30 сек</div>
+          <div class="stat-k">Точек влажности</div>
+          <div class="stat-v">{{ st.humidityPointsCount }}</div>
         </div>
       </div>
     </div>
@@ -607,8 +614,8 @@ onBeforeUnmount(() => {
   min-width: 150px;
 }
 
-.control-points {
-  width: 110px;
+.datetime-field {
+  min-width: 210px;
 }
 
 .control-label {
@@ -726,7 +733,7 @@ onBeforeUnmount(() => {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -749,6 +756,12 @@ onBeforeUnmount(() => {
   color: #0f2147;
 }
 
+@media (max-width: 1200px) {
+  .datetime-field {
+    min-width: 180px;
+  }
+}
+
 @media (max-width: 1100px) {
   .layout-grid {
     grid-template-columns: 1fr;
@@ -765,11 +778,15 @@ onBeforeUnmount(() => {
 
 @media (max-width: 760px) {
   .stats-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .graph-body {
     height: 260px;
+  }
+
+  .datetime-field {
+    min-width: 100%;
   }
 }
 </style>
