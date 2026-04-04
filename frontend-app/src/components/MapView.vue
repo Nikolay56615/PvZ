@@ -35,7 +35,8 @@ const mapEl = ref(null)
 const error = ref('')
 const map = shallowRef(null)
 const placemarks = shallowRef([])
-const deviceTenantMap = ref(new Map())
+
+const deviceInfoMap = ref(new Map())
 
 function escapeHtml(value) {
   return String(value ?? 'n/a')
@@ -68,6 +69,10 @@ function normalizeDevice(raw, tenant = null) {
   return {
     ...raw,
     device_id: raw?.device_id ?? raw?.id ?? raw?.external_id ?? raw?.name,
+    external_id: raw?.external_id ?? '',
+    display_name: raw?.display_name ?? '',
+    name: raw?.name ?? '',
+    model: raw?.model ?? '',
     tenant_id:
       raw?.tenant_id ??
       raw?.tenant?.tenant_id ??
@@ -124,7 +129,7 @@ function clearPlacemarks() {
   placemarks.value = []
 }
 
-async function buildDeviceTenantMap() {
+async function buildDeviceInfoMap() {
   const index = new Map()
 
   try {
@@ -138,47 +143,42 @@ async function buildDeviceTenantMap() {
 
         for (const row of rows) {
           if (!row?.device_id) continue
-          index.set(String(row.device_id), {
-            tenant_id: row.tenant_id,
-            tenant_name: row.tenant_name,
-          })
+          index.set(String(row.device_id), row)
         }
       } catch (e) {
-        console.warn('Не удалось собрать tenant map для tenant', tenant.tenant_id, e)
+        console.warn('Не удалось загрузить устройства tenant', tenant.tenant_id, e)
       }
     }
   } catch (e) {
     console.warn('Не удалось загрузить tenants для карты', e)
   }
 
-  deviceTenantMap.value = index
+  deviceInfoMap.value = index
 }
 
-function resolveTenantInfo(marker) {
-  const directTenantId = marker?.tenant_id ?? marker?.tenant?.tenant_id ?? ''
-  const directTenantName = marker?.tenant_name ?? marker?.tenant?.name ?? ''
+function mergeMarkerWithDevice(marker) {
+  const deviceMeta = deviceInfoMap.value.get(String(marker?.device_id || ''))
 
-  if (directTenantId || directTenantName) {
-    return {
-      tenant_id: String(directTenantId || ''),
-      tenant_name: String(directTenantName || ''),
-    }
-  }
-
-  const mapped = deviceTenantMap.value.get(String(marker?.device_id || ''))
-  if (mapped) return mapped
+  if (!deviceMeta) return marker
 
   return {
-    tenant_id: '',
-    tenant_name: '',
+    ...deviceMeta,
+    ...marker,
+    device_id: marker?.device_id ?? deviceMeta?.device_id,
+    external_id: deviceMeta?.external_id ?? marker?.external_id,
+    display_name: deviceMeta?.display_name ?? marker?.display_name,
+    name: deviceMeta?.name ?? marker?.name,
+    model: deviceMeta?.model ?? marker?.model,
+    tenant_id: marker?.tenant_id ?? deviceMeta?.tenant_id,
+    tenant_name: marker?.tenant_name ?? deviceMeta?.tenant_name,
   }
 }
 
-function balloon(m) {
-  const tenantInfo = resolveTenantInfo(m)
-  const tenantAccent = getTenantAccent(tenantInfo.tenant_id || tenantInfo.tenant_name || 'default')
-  const displayName = getDisplayDeviceName(m)
-  const battery = formatBattery(m.battery ?? m.battery_level)
+function balloon(device) {
+  const tenantKey = device?.tenant_id || device?.tenant_name || 'default'
+  const tenantAccent = getTenantAccent(tenantKey)
+  const displayName = getDisplayDeviceName(device)
+  const battery = formatBattery(device.battery ?? device.battery_level)
 
   return `
     <div style="
@@ -201,13 +201,13 @@ function balloon(m) {
         <div style="
           padding:5px 9px;
           border-radius:999px;
-          background:${getPowerState(m) ? '#dcfce7' : '#fee2e2'};
-          color:${getPowerState(m) ? '#15803d' : '#b91c1c'};
+          background:${getPowerState(device) ? '#dcfce7' : '#fee2e2'};
+          color:${getPowerState(device) ? '#15803d' : '#b91c1c'};
           font-size:11px;
           font-weight:700;
           white-space:nowrap;
         ">
-          ${getPowerStateLabel(m)}
+          ${getPowerStateLabel(device)}
         </div>
       </div>
 
@@ -219,28 +219,28 @@ function balloon(m) {
 
         <div style="padding:10px; border-radius:14px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
           <div style="font-size:11px; color:#64748b; margin-bottom:4px;">Статус</div>
-          <div style="font-size:13px; font-weight:600;">${escapeHtml(getPowerStateLabel(m))}</div>
+          <div style="font-size:13px; font-weight:600;">${escapeHtml(getPowerStateLabel(device))}</div>
         </div>
 
         <div style="padding:10px; border-radius:14px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
           <div style="font-size:11px; color:#64748b; margin-bottom:4px;">Широта</div>
-          <div style="font-size:13px; font-weight:600;">${escapeHtml(m.lat)}</div>
+          <div style="font-size:13px; font-weight:600;">${escapeHtml(device.lat)}</div>
         </div>
 
         <div style="padding:10px; border-radius:14px; background:#ffffff; border:1px solid rgba(224, 231, 255, 0.95);">
           <div style="font-size:11px; color:#64748b; margin-bottom:4px;">Долгота</div>
-          <div style="font-size:13px; font-weight:600;">${escapeHtml(m.lon)}</div>
+          <div style="font-size:13px; font-weight:600;">${escapeHtml(device.lon)}</div>
         </div>
       </div>
 
       ${
-        isBatteryLow(m.battery ?? m.battery_level)
+        isBatteryLow(device.battery ?? device.battery_level)
           ? '<div style="margin-top:10px; padding:9px 10px; border-radius:12px; background:#fff7ed; color:#c2410c; border:1px solid #fdba74; font-weight:600; font-size:13px;">Низкий заряд устройства</div>'
           : ''
       }
 
       <a
-        href="/management/${encodeURIComponent(m.device_id)}${tenantInfo.tenant_id ? `?tenant_id=${encodeURIComponent(tenantInfo.tenant_id)}` : ''}"
+        href="/management/${encodeURIComponent(device.device_id)}${device.tenant_id ? `?tenant_id=${encodeURIComponent(device.tenant_id)}` : ''}"
         style="display:inline-flex; margin-top:10px; padding:9px 14px; border-radius:999px; background:#1d4ed8; color:#fff; text-decoration:none; font-weight:700; font-size:13px;"
       >
         Открыть управление
@@ -254,10 +254,11 @@ async function loadMarkers() {
 
   try {
     await ensureMap()
-    await buildDeviceTenantMap()
+    await buildDeviceInfoMap()
 
     const response = await api.get('/map/markers')
-    const markers = normalizeRows(response)
+    const rawMarkers = normalizeRows(response)
+    const markers = rawMarkers.map(mergeMarkerWithDevice)
 
     clearPlacemarks()
 
@@ -277,16 +278,17 @@ async function loadMarkers() {
       validMarkers.length === 1 ? 15 : 12
     )
 
-    for (const m of validMarkers) {
-      const lat = Number(m.lat)
-      const lon = Number(m.lon)
-      const preset = getPowerState(m) ? 'islands#greenDotIcon' : 'islands#redDotIcon'
+    for (const marker of validMarkers) {
+      const lat = Number(marker.lat)
+      const lon = Number(marker.lon)
+      const preset = getPowerState(marker) ? 'islands#greenDotIcon' : 'islands#redDotIcon'
+      const displayName = getDisplayDeviceName(marker)
 
       const pm = new window.ymaps.Placemark(
         [lat, lon],
         {
-          hintContent: `Устройство: ${escapeHtml(getDisplayDeviceName(m))}`,
-          balloonContent: balloon(m),
+          hintContent: `Устройство: ${escapeHtml(displayName)}`,
+          balloonContent: balloon(marker),
         },
         { preset }
       )
