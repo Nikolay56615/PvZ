@@ -15,9 +15,35 @@ const loading = ref(false)
 const validLogin = computed(() =>
   /^[A-Za-z0-9._-]+(?:@[A-Za-z0-9.-]+\.[A-Za-z]{2,})?$/.test(loginValue.value.trim())
 )
+
 const validPassword = computed(() =>
   /^[A-Za-z0-9!@#$%^&*._-]+$/.test(password.value)
 )
+
+function extractErrorMessage(e, fallback) {
+  const raw =
+    e?.body?.detail ??
+    e?.response?.data?.detail ??
+    e?.data?.detail ??
+    e?.message ??
+    fallback
+
+  if (typeof raw === 'string') return raw
+
+  if (Array.isArray(raw)) {
+    const first = raw[0]
+    if (typeof first === 'string') return first
+    if (first?.msg) return first.msg
+    return fallback
+  }
+
+  if (raw && typeof raw === 'object') {
+    if (typeof raw.detail === 'string') return raw.detail
+    if (typeof raw.msg === 'string') return raw.msg
+  }
+
+  return fallback
+}
 
 async function onSubmit() {
   if (!loginValue.value.trim() || !password.value) {
@@ -41,9 +67,15 @@ async function onSubmit() {
   }
 
   loading.value = true
+
   try {
+    const trimmed = loginValue.value.trim()
+    const isEmail = trimmed.includes('@')
+
     const res = await api.post('/auth/login', {
-      email: loginValue.value.trim(),
+      user: isEmail
+        ? { email: trimmed }
+        : { username: trimmed },
       password: password.value,
     })
 
@@ -57,10 +89,12 @@ async function onSubmit() {
       localStorage.setItem('pvz_user', JSON.stringify(res.user))
     }
 
-    toast.success(`Добро пожаловать, ${loginValue.value}!`)
+    toast.success(`Добро пожаловать, ${trimmed}!`)
     router.push('/')
   } catch (e) {
-    toast.error(e?.message || 'Не удалось войти. Проверьте данные или попробуйте позже.')
+    toast.error(
+      extractErrorMessage(e, 'Не удалось войти. Проверьте данные или попробуйте позже.')
+    )
   } finally {
     loading.value = false
   }
@@ -244,4 +278,3 @@ async function onSubmit() {
   }
 }
 </style>
-
