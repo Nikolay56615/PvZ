@@ -1,58 +1,68 @@
 <script setup>
-import { reactive, ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
+import { useToast } from 'vue-toastification'
 import { isAllowedEmailDomain, getEmailDomainError } from '../utils/emailDomain'
-import { toast } from 'vue-sonner'
 
 const router = useRouter()
+const toast = useToast()
 
-const form = reactive({
-  email: '',
-  password: '',
-  confirmPassword: ''
-})
-
+const email = ref('')
+const password = ref('')
+const password2 = ref('')
 const loading = ref(false)
 
+const validEmail = computed(() => /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email.value.trim()))
+const validPassword = computed(() => /^[A-Za-z0-9!@#$%^&*._-]+$/.test(password.value))
+
 async function onSubmit() {
-  if (!form.email || !form.password || !form.confirmPassword) {
-    toast.error('Заполните все поля')
+  if (!email.value.trim() || !password.value || !password2.value) {
+    toast.error('Заполни все поля')
     return
   }
 
-  if (!isAllowedEmailDomain(form.email)) {
+  if (!validEmail.value) {
+    toast.error('Некорректный email. Допустимы только латиница, цифры и ._%+-')
+    return
+  }
+
+  if (!isAllowedEmailDomain(email.value.trim())) {
     toast.error(getEmailDomainError())
     return
   }
 
-  if (form.password.length < 6) {
-    toast.error('Пароль должен содержать не менее 6 символов')
+  if (!validPassword.value) {
+    toast.error('Пароль может содержать только латиницу, цифры и !@#$%^&*._-')
     return
   }
 
-  if (form.password !== form.confirmPassword) {
+  if (password.value !== password2.value) {
     toast.error('Пароли не совпадают')
     return
   }
 
   loading.value = true
-
   try {
-    await api.post('/auth/register', {
-      email: form.email.trim(),
-      password: form.password
+    const res = await api.post('/auth/register', {
+      email: email.value.trim(),
+      password: password.value,
     })
 
-    toast.success('Регистрация выполнена')
+    if (res?.access_token) {
+      localStorage.setItem('pvz_token', res.access_token)
+      if (res?.user) {
+        localStorage.setItem('pvz_user', JSON.stringify(res.user))
+      }
+      toast.success('Аккаунт создан и вы вошли.')
+      router.push('/')
+      return
+    }
+
+    toast.success('Аккаунт создан. Теперь войдите.')
     router.push('/login')
   } catch (e) {
-    const message =
-      e?.response?.data?.detail ||
-      e?.message ||
-      'Не удалось выполнить регистрацию'
-
-    toast.error(message)
+    toast.error(e?.body?.detail || e?.message || 'Не удалось создать аккаунт. Попробуйте позже.')
   } finally {
     loading.value = false
   }
@@ -60,129 +70,54 @@ async function onSubmit() {
 </script>
 
 <template>
-  <div class="auth-page">
+  <section class="auth-page">
     <div class="auth-card">
       <h1 class="auth-title">Регистрация</h1>
+      <p class="auth-subtitle">Создай аккаунт для доступа к системе</p>
 
       <form class="auth-form" @submit.prevent="onSubmit">
-        <div class="field">
-          <label class="label">Почта</label>
+        <label class="auth-label">
+          Email
           <input
-            v-model="form.email"
-            class="input"
+            v-model="email"
             type="email"
+            class="input"
+            placeholder="Введите email"
             autocomplete="email"
-            placeholder="Введите почту"
           />
-        </div>
+        </label>
 
-        <div class="field">
-          <label class="label">Пароль</label>
+        <label class="auth-label">
+          Пароль
           <input
-            v-model="form.password"
-            class="input"
+            v-model="password"
             type="password"
-            autocomplete="new-password"
+            class="input"
             placeholder="Введите пароль"
-          />
-        </div>
-
-        <div class="field">
-          <label class="label">Повторите пароль</label>
-          <input
-            v-model="form.confirmPassword"
-            class="input"
-            type="password"
             autocomplete="new-password"
-            placeholder="Повторите пароль"
           />
-        </div>
+        </label>
 
-        <button class="btn" type="submit" :disabled="loading">
-          {{ loading ? 'Регистрируем…' : 'Зарегистрироваться' }}
+        <label class="auth-label">
+          Повторите пароль
+          <input
+            v-model="password2"
+            type="password"
+            class="input"
+            placeholder="Повторите пароль"
+            autocomplete="new-password"
+          />
+        </label>
+
+        <button class="btn auth-btn" type="submit" :disabled="loading">
+          {{ loading ? 'Создаем аккаунт...' : 'Зарегистрироваться' }}
         </button>
       </form>
 
-      <div class="auth-footer">
+      <p class="auth-footer">
         Уже есть аккаунт?
         <router-link to="/login">Войти</router-link>
-      </div>
+      </p>
     </div>
-  </div>
+  </section>
 </template>
-
-<style scoped>
-.auth-page {
-  min-height: calc(100vh - 120px);
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.auth-card {
-  width: 100%;
-  max-width: 420px;
-  background: #fff;
-  border: 1px solid #e6edf5;
-  border-radius: 16px;
-  box-shadow: 0 10px 30px rgba(16, 24, 40, 0.06);
-  padding: 24px;
-}
-
-.auth-title {
-  margin: 0 0 20px;
-  font-size: 28px;
-  font-weight: 700;
-}
-
-.auth-form {
-  display: grid;
-  gap: 16px;
-}
-
-.field {
-  display: grid;
-  gap: 8px;
-}
-
-.label {
-  font-size: 14px;
-  color: #334155;
-}
-
-.input {
-  width: 100%;
-  border: 1px solid #d7deea;
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 15px;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.input:focus {
-  border-color: #94a3b8;
-}
-
-.btn {
-  margin-top: 6px;
-  border: none;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font-size: 15px;
-  cursor: pointer;
-  background: #111827;
-  color: #fff;
-}
-
-.btn:disabled {
-  opacity: 0.65;
-  cursor: default;
-}
-
-.auth-footer {
-  margin-top: 16px;
-  font-size: 14px;
-  color: #475569;
-}
-</style>
