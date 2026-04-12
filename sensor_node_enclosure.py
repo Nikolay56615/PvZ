@@ -31,7 +31,8 @@ DS18B20_HOLE_CENTER_Y = 20.0 * MM
 DS18B20_HOLE_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
 
 GPS_ANTENNA_RECESS_SIZE = 30.0 * MM
-GPS_ANTENNA_RECESS_DEPTH = 1.5 * MM
+GPS_BAY_PUSH = 10.0 * MM
+GPS_BAY_FILLET = 2.0 * MM
 GPS_ANTENNA_RECESS_CENTER_Y = 20.0 * MM
 GPS_ANTENNA_RECESS_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
 
@@ -142,16 +143,48 @@ def build_base() -> Part:
                     align=(Align.CENTER, Align.CENTER, Align.CENTER),
                 )
 
+        gps_outer_x = outer_length() / 2
+        gps_patch_center_x = gps_outer_x - GPS_BAY_PUSH + GPS_ANTENNA_RECESS_SIZE / 2
+        gps_patch_center = (gps_patch_center_x, GPS_ANTENNA_RECESS_CENTER_Y)
+
+        with BuildSketch(Plane.XY.offset(BOTTOM)) as gps_bay_profile:
+            with Locations(gps_patch_center):
+                RectangleRounded(
+                    GPS_ANTENNA_RECESS_SIZE,
+                    GPS_ANTENNA_RECESS_SIZE,
+                    GPS_BAY_FILLET,
+                )
+                RectangleRounded(
+                    GPS_ANTENNA_RECESS_SIZE - 2 * WALL,
+                    GPS_ANTENNA_RECESS_SIZE - 2 * WALL,
+                    max(GPS_BAY_FILLET - WALL, 0.5 * MM),
+                    mode=Mode.SUBTRACT,
+                )
+
+            RectangleRounded(
+                outer_length(),
+                outer_width(),
+                CORNER_RADIUS,
+                mode=Mode.INTERSECT,
+            )
+
+        if len(gps_bay_profile.sketch.faces()) > 0:
+            extrude(
+                to_extrude=gps_bay_profile.sketch,
+                amount=INNER_HEIGHT,
+                mode=Mode.ADD,
+            )
+
         with BuildPart(mode=Mode.SUBTRACT):
             with Locations((
-                INNER_LENGTH / 2 + WALL - GPS_ANTENNA_RECESS_DEPTH / 2,
+                outer_length() / 2 - WALL / 2,
                 GPS_ANTENNA_RECESS_CENTER_Y,
-                GPS_ANTENNA_RECESS_CENTER_Z,
+                BOTTOM + INNER_HEIGHT / 2,
             )):
                 Box(
-                    GPS_ANTENNA_RECESS_DEPTH + 0.1 * MM,
-                    GPS_ANTENNA_RECESS_SIZE,
-                    GPS_ANTENNA_RECESS_SIZE,
+                    WALL + 0.2 * MM,
+                    GPS_ANTENNA_RECESS_SIZE - 2 * WALL,
+                    INNER_HEIGHT,
                     align=(Align.CENTER, Align.CENTER, Align.CENTER),
                 )
 
