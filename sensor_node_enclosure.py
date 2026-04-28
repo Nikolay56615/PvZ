@@ -24,21 +24,21 @@ INNER_HEIGHT = 50.0 * MM
 HW390_SLOT_LENGTH = 4.2 * MM
 HW390_SLOT_WIDTH = 23.5 * MM
 HW390_SLOT_CENTER_Y = -20.0 * MM
-HW390_SLOT_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
+HW390_SLOT_CENTER_Z = BOTTOM + INNER_HEIGHT / 2   # 28 mm
 
 DS18B20_HOLE_DIAMETER = 9.0 * MM
 DS18B20_HOLE_CENTER_Y = 20.0 * MM
-DS18B20_HOLE_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
+DS18B20_HOLE_CENTER_Z = BOTTOM + INNER_HEIGHT / 2  # 28 mm
 
 GPS_ANTENNA_RECESS_SIZE = 30.0 * MM
 GPS_BAY_PUSH = 10.0 * MM
 GPS_BAY_FILLET = 2.0 * MM
 GPS_ANTENNA_RECESS_CENTER_Y = 20.0 * MM
-GPS_ANTENNA_RECESS_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
+GPS_ANTENNA_RECESS_CENTER_Z = BOTTOM + INNER_HEIGHT / 2  # 28 mm
 
 LORA_ANTENNA_HOLE_DIAMETER = 10.0 * MM
 LORA_ANTENNA_HOLE_CENTER_Y = -20.0 * MM
-LORA_ANTENNA_HOLE_CENTER_Z = BOTTOM + INNER_HEIGHT / 2
+LORA_ANTENNA_HOLE_CENTER_Z = BOTTOM + INNER_HEIGHT / 2  # 28 mm
 
 BOSS_OUTER_DIAMETER = 7.0 * MM
 BOSS_INNER_DIAMETER = 2.5 * MM
@@ -96,10 +96,6 @@ def boss_corners(z_center: float) -> tuple:
     return (bx, by, z_center), (bx, -by, z_center), (-bx, by, z_center), (-bx, -by, z_center)
 
 
-def boss_relief_radius() -> float:
-    return BOSS_OUTER_DIAMETER / 2 + LIP_CLEARANCE
-
-
 def build_base() -> Part:
     wall_cut_depth = WALL + 2.0 * MM
 
@@ -113,7 +109,9 @@ def build_base() -> Part:
         extrude(amount=INNER_HEIGHT + 0.1 * MM, mode=Mode.SUBTRACT)
 
         with BuildPart(mode=Mode.SUBTRACT):
-            with Locations((-INNER_LENGTH / 2 - WALL / 2, HW390_SLOT_CENTER_Y, HW390_SLOT_CENTER_Z)):
+            with Locations((-INNER_LENGTH / 2 - WALL / 2,
+                            HW390_SLOT_CENTER_Y,
+                            HW390_SLOT_CENTER_Z)):
                 Box(
                     wall_cut_depth,
                     HW390_SLOT_LENGTH,
@@ -123,7 +121,9 @@ def build_base() -> Part:
 
         with BuildPart(mode=Mode.SUBTRACT):
             with Locations(Location(
-                (-INNER_LENGTH / 2 - WALL / 2, DS18B20_HOLE_CENTER_Y, DS18B20_HOLE_CENTER_Z),
+                (-INNER_LENGTH / 2 - WALL / 2,
+                 DS18B20_HOLE_CENTER_Y,
+                 DS18B20_HOLE_CENTER_Z),
                 (0, 90, 0),
             )):
                 Cylinder(
@@ -134,7 +134,9 @@ def build_base() -> Part:
 
         with BuildPart(mode=Mode.SUBTRACT):
             with Locations(Location(
-                (INNER_LENGTH / 2 + WALL / 2, LORA_ANTENNA_HOLE_CENTER_Y, LORA_ANTENNA_HOLE_CENTER_Z),
+                (INNER_LENGTH / 2 + WALL / 2,
+                 LORA_ANTENNA_HOLE_CENTER_Y,
+                 LORA_ANTENNA_HOLE_CENTER_Z),
                 (0, 90, 0),
             )):
                 Cylinder(
@@ -143,6 +145,10 @@ def build_base() -> Part:
                     align=(Align.CENTER, Align.CENTER, Align.CENTER),
                 )
 
+        # ── +X wall: GPS antenna bay from a single XY sketch ──────────────────
+        # Build one connected hollow profile in plan view and extrude it upward.
+        # This matches the intended geometry better than separate YZ ribs:
+        # the rounded corners belong to the whole recessed square fragment.
         gps_outer_x = outer_length() / 2
         gps_patch_center_x = gps_outer_x - GPS_BAY_PUSH + GPS_ANTENNA_RECESS_SIZE / 2
         gps_patch_center = (gps_patch_center_x, GPS_ANTENNA_RECESS_CENTER_Y)
@@ -161,6 +167,7 @@ def build_base() -> Part:
                     mode=Mode.SUBTRACT,
                 )
 
+            # Keep only the part of the rounded square that lies inside the shell.
             RectangleRounded(
                 outer_length(),
                 outer_width(),
@@ -175,6 +182,7 @@ def build_base() -> Part:
                 mode=Mode.ADD,
             )
 
+        # Open the original +X wall where the hollow pocket reaches the exterior.
         with BuildPart(mode=Mode.SUBTRACT):
             with Locations((
                 outer_length() / 2 - WALL / 2,
@@ -188,6 +196,7 @@ def build_base() -> Part:
                     align=(Align.CENTER, Align.CENTER, Align.CENTER),
                 )
 
+        # ── Corner bosses ────────────────────────────────────────────────────────
         with Locations(*boss_corners(BOTTOM + BOSS_HEIGHT / 2)):
             Cylinder(
                 radius=BOSS_OUTER_DIAMETER / 2,
@@ -206,19 +215,147 @@ def build_base() -> Part:
     return base.part
 
 
+def boss_corners_xy() -> tuple:
+    bx = INNER_LENGTH / 2 - BOSS_INSET
+    by = INNER_WIDTH / 2 - BOSS_INSET
+    return (bx, by), (bx, -by), (-bx, by), (-bx, -by)
+
+
+def boss_relief_radius() -> float:
+    return BOSS_OUTER_DIAMETER / 2 + LIP_CLEARANCE
+
+
+def boss_patch_size() -> float:
+    return BOSS_OUTER_DIAMETER + 2 * (LIP_CLEARANCE + WALL)
+
+
+def boss_patch_round() -> float:
+    return min(lip_inner_radius(), boss_patch_size() / 2 - 0.1 * MM)
+
+
+def boss_patch_overlap_x() -> float:
+    bx = INNER_LENGTH / 2 - BOSS_INSET
+    return max(lip_inner_length() / 2 - bx, 0.0) + 0.25 * MM
+
+
+def boss_patch_overlap_y() -> float:
+    by = INNER_WIDTH / 2 - BOSS_INSET
+    return max(lip_inner_width() / 2 - by, 0.0) + 0.25 * MM
+
+
+def gps_patch_center_xy() -> tuple[float, float]:
+    gps_outer_x = outer_length() / 2
+    gps_patch_center_x = gps_outer_x - GPS_BAY_PUSH + GPS_ANTENNA_RECESS_SIZE / 2
+    return gps_patch_center_x, GPS_ANTENNA_RECESS_CENTER_Y
+
+
+def gps_lip_inner_size() -> float:
+    return GPS_ANTENNA_RECESS_SIZE + 2 * LIP_CLEARANCE
+
+
+def gps_lip_inner_round() -> float:
+    return GPS_BAY_FILLET + LIP_CLEARANCE
+
+
+def gps_lip_outer_size() -> float:
+    return GPS_ANTENNA_RECESS_SIZE + 2 * (LIP_CLEARANCE + LIP_WALL)
+
+
+def gps_lip_outer_round() -> float:
+    return GPS_BAY_FILLET + LIP_CLEARANCE + LIP_WALL
+
+
+def gps_rebuild_zone_size() -> float:
+    # Чуть больше нового GPS-патча, чтобы гарантированно снести старую губу без хвостов
+    return gps_lip_outer_size() + 0.15 * MM
+
+
+def gps_rebuild_zone_round() -> float:
+    return gps_lip_outer_round() + 0.15 * MM
+
 def build_lid() -> Part:
     relief_r = boss_relief_radius()
+    patch_size = boss_patch_size()
+    patch_round = boss_patch_round()
+    overlap_x = boss_patch_overlap_x()
+    overlap_y = boss_patch_overlap_y()
+    gps_cx, gps_cy = gps_patch_center_xy()
 
     with BuildPart() as lid:
+        # Верхняя пластина крышки
         with BuildSketch():
             RectangleRounded(outer_length(), outer_width(), CORNER_RADIUS)
         extrude(amount=LID_TOP)
 
-        with BuildSketch(Plane.XY.offset(-LIP_DEPTH)):
-            RectangleRounded(lip_outer_length(), lip_outer_width(), lip_outer_radius())
-            RectangleRounded(lip_inner_length(), lip_inner_width(), lip_inner_radius(), mode=Mode.SUBTRACT)
-        extrude(amount=LIP_DEPTH)
+        # --- Базовый скетч старой губы ---
+        with BuildSketch(Plane.XY.offset(-LIP_DEPTH)) as base_lip:
+            RectangleRounded(
+                lip_outer_length(),
+                lip_outer_width(),
+                lip_outer_radius(),
+            )
+            RectangleRounded(
+                lip_inner_length(),
+                lip_inner_width(),
+                lip_inner_radius(),
+                mode=Mode.SUBTRACT,
+            )
 
+        # --- Кусок СТАРОЙ губы, который нужно убрать в зоне GPS ---
+        with BuildSketch(Plane.XY.offset(-LIP_DEPTH)) as gps_old_lip_cut:
+            RectangleRounded(
+                lip_outer_length(),
+                lip_outer_width(),
+                lip_outer_radius(),
+            )
+            RectangleRounded(
+                lip_inner_length(),
+                lip_inner_width(),
+                lip_inner_radius(),
+                mode=Mode.SUBTRACT,
+            )
+
+            with Locations((gps_cx, gps_cy)):
+                RectangleRounded(
+                    gps_rebuild_zone_size(),
+                    gps_rebuild_zone_size(),
+                    gps_rebuild_zone_round(),
+                    mode=Mode.INTERSECT,
+                )
+
+        # --- Новый кусок губы, огибающий стенки GPS ---
+        with BuildSketch(Plane.XY.offset(-LIP_DEPTH)) as gps_lip_patch:
+            with Locations((gps_cx, gps_cy)):
+                RectangleRounded(
+                    gps_lip_outer_size(),
+                    gps_lip_outer_size(),
+                    gps_lip_outer_round(),
+                )
+                RectangleRounded(
+                    gps_lip_inner_size(),
+                    gps_lip_inner_size(),
+                    gps_lip_inner_round(),
+                    mode=Mode.SUBTRACT,
+                )
+
+            # Жёстко ограничиваем новым внешним контуром старой губы,
+            # чтобы ничего не выпирало наружу
+            RectangleRounded(
+                lip_outer_length(),
+                lip_outer_width(),
+                lip_outer_radius(),
+                mode=Mode.INTERSECT,
+            )
+
+        # --- Финальная монолитная губа ---
+        final_lip = base_lip.sketch - gps_old_lip_cut.sketch + gps_lip_patch.sketch
+
+        extrude(
+            to_extrude=final_lip,
+            amount=LIP_DEPTH,
+        )
+
+        # Вырезы под боссы
         with BuildPart(mode=Mode.SUBTRACT):
             with Locations(*boss_corners(-LIP_DEPTH / 2)):
                 Cylinder(
@@ -227,6 +364,45 @@ def build_lid() -> Part:
                     align=(Align.CENTER, Align.CENTER, Align.CENTER),
                 )
 
+        # Возвращаем внутреннюю часть, но с перекрытием в губу
+        for x, y in boss_corners_xy():
+            sx = 1 if x > 0 else -1
+            sy = 1 if y > 0 else -1
+
+            with BuildSketch(Plane.XY.offset(-LIP_DEPTH)) as boss_patch:
+                with Locations((x, y)):
+                    RectangleRounded(
+                        patch_size,
+                        patch_size,
+                        patch_round,
+                    )
+                    Circle(relief_r, mode=Mode.SUBTRACT)
+
+                RectangleRounded(
+                    INNER_LENGTH,
+                    INNER_WIDTH,
+                    inner_corner_radius(),
+                    mode=Mode.INTERSECT,
+                )
+
+                with Locations((
+                    x - sx * (patch_size / 2 - overlap_x / 2),
+                    y - sy * (patch_size / 2 - overlap_y / 2),
+                )):
+                    Rectangle(
+                        patch_size + overlap_x,
+                        patch_size + overlap_y,
+                        mode=Mode.INTERSECT,
+                    )
+
+            if len(boss_patch.sketch.faces()) > 0:
+                extrude(
+                    to_extrude=boss_patch.sketch,
+                    amount=LIP_DEPTH,
+                    mode=Mode.ADD,
+                )
+
+        # Верхние посадочные карманы под торцы боссов
         with BuildPart(mode=Mode.SUBTRACT):
             with Locations(*boss_corners(BOSS_LID_POCKET_DEPTH / 2)):
                 Cylinder(
@@ -235,6 +411,7 @@ def build_lid() -> Part:
                     align=(Align.CENTER, Align.CENTER, Align.CENTER),
                 )
 
+        # Отверстия под винты
         with BuildPart(mode=Mode.SUBTRACT):
             with Locations(*boss_corners((LID_TOP + BOSS_LID_POCKET_DEPTH) / 2)):
                 Cylinder(
@@ -245,7 +422,6 @@ def build_lid() -> Part:
 
     return lid.part
 
-
 def export_parts(base: Part, lid: Part) -> None:
     export_stl(base, str(EXPORT_DIR / f"{NAME}_base.stl"))
     export_stl(lid, str(EXPORT_DIR / f"{NAME}_lid.stl"))
@@ -254,6 +430,8 @@ def export_parts(base: Part, lid: Part) -> None:
 def main() -> None:
     base = build_base()
     lid = build_lid()
+    print("solids:", len(lid.solids()))
+    print("valid:", lid.is_valid)
     export_parts(base, lid)
 
     lid_preview = lid.moved(Location((0, 0, base_height() + 4 * MM)))
